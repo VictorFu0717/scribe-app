@@ -35,6 +35,7 @@ class RecordingForegroundService {
         // 我們只需要服務「存活」以保住麥克風權限,不需週期性 Dart callback。
         eventAction: ForegroundTaskEventAction.nothing(),
         allowWakeLock: true,
+        allowWifiLock: true, // 錄音期間保持 WiFi 無線電清醒(對付積極省電機型)
       ),
     );
     _inited = true;
