@@ -5,17 +5,17 @@
 class AppConfig {
   AppConfig._();
 
-  /// 公司 server(FastAPI)base URL 預設值。
-  /// 可用 `--dart-define=API_BASE_URL=https://...` 覆寫,或在設定頁修改。
+  /// scribe server base URL 預設值(部署走 Tailscale;見 server README)。
+  /// 可用 `--dart-define=API_BASE_URL=http://...` 覆寫,或在設定頁修改。
   static const String defaultApiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://meeting.internal.example.com',
+    defaultValue: 'http://100.68.0.81:8005',
   );
 
   /// 是否預設使用內建 mock 後端(無 server 也能 demo 全流程)。
-  /// 正式接後端時以 `--dart-define=USE_MOCK=false` 或設定頁關閉。
+  /// 預設連真 server;要離線示範可在設定頁開 Mock,或 `--dart-define=USE_MOCK=true`。
   static const bool defaultUseMock =
-      bool.fromEnvironment('USE_MOCK', defaultValue: true);
+      bool.fromEnvironment('USE_MOCK', defaultValue: false);
 
   // ── 音訊擷取格式(faster-whisper 串流需求) ──
   static const int sampleRate = 16000;

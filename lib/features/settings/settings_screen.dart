@@ -12,8 +12,15 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  late final TextEditingController _urlCtrl =
-      TextEditingController(text: ref.read(settingsProvider).baseUrl);
+  late final TextEditingController _urlCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    // 在 initState 讀(ref 有效);不可用 late-field 初始化,否則 Mock 模式下
+    // 欄位不顯示、_urlCtrl 從未存取,會延遲到 dispose 才初始化而 ref 已失效。
+    _urlCtrl = TextEditingController(text: ref.read(settingsProvider).baseUrl);
+  }
 
   @override
   void dispose() {

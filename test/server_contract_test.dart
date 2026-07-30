@@ -5,10 +5,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:meeting_assistant/core/storage/token_storage.dart';
+import 'package:meeting_assistant/models/auth_token.dart';
 import 'package:meeting_assistant/models/chat_message.dart';
 import 'package:meeting_assistant/models/meeting.dart';
 import 'package:meeting_assistant/models/transcription_config.dart';
 import 'package:meeting_assistant/services/http_backend.dart';
+
+/// 記憶體 token 儲存,避免測試碰到 flutter_secure_storage 原生 channel。
+class _FakeTokenStorage extends TokenStorage {
+  @override
+  Future<AuthToken?> read() async => null;
+  @override
+  Future<void> write(AuthToken token) async {}
+  @override
+  Future<void> clear() async {}
+}
 
 /// 這些測試把 App 的解析鎖定在 scribe server 的「實際」回傳形狀
 /// (取自 server repo 的 db.py / summarize.py / chat_qa.py),避免日後 drift。
@@ -33,6 +44,38 @@ HttpBackend _backend(MockClient client) => HttpBackend(
     );
 
 void main() {
+  test('POST /auth/register:JSON body、解析 token 回應', () async {
+    Map<String, dynamic>? body;
+    Uri? url;
+    final client = MockClient.streaming((req, bodyStream) async {
+      url = req.url;
+      body = jsonDecode(await bodyStream.bytesToString()) as Map<String, dynamic>;
+      // server auth.py 的 _token_response 形狀
+      return _json({
+        'access_token': 'jwt-abc',
+        'token_type': 'bearer',
+        'expires_in': 43200,
+        'user_id': 'u1',
+        'username': 'alice',
+      });
+    });
+    final backend = HttpBackend(
+      baseUrl: 'http://scribe.local:8005',
+      tokenStorage: _FakeTokenStorage(),
+      client: client,
+    );
+
+    final token =
+        await backend.register(username: 'alice', password: 'pw1234');
+
+    expect(url?.path, '/auth/register');
+    expect(body?['username'], 'alice');
+    expect(body?['password'], 'pw1234');
+    expect(token.accessToken, 'jwt-abc');
+    expect(token.authorizationHeader, 'Bearer jwt-abc');
+    expect(token.isExpired, isFalse); // expires_in=12h → 未過期
+  });
+
   test('GET /meetings 解析 server 的 {items:[...]} 形狀', () async {
     final client = MockClient.streaming((req, _) async {
       expect(req.url.path, '/meetings');

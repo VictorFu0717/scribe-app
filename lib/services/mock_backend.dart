@@ -105,6 +105,13 @@ class MockBackend implements Backend {
       ));
 
   @override
+  Future<AuthToken> register({
+    required String username,
+    required String password,
+  }) =>
+      login(username: username, password: password);
+
+  @override
   Future<List<Meeting>> listMeetings() {
     final list = _meetings.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));

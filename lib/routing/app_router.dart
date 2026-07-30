@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/assistant/assistant_screen.dart';
 import '../features/auth/login_screen.dart';
+import '../features/auth/register_screen.dart';
 import '../features/auth/splash_screen.dart';
 import '../features/meetings/meeting_detail_screen.dart';
 import '../features/meetings/meetings_list_screen.dart';
@@ -15,6 +16,7 @@ import '../providers/auth_controller.dart';
 class Routes {
   static const splash = '/splash';
   static const login = '/login';
+  static const register = '/register';
   static const meetings = '/';
   static const record = '/record';
   static const settings = '/settings';
@@ -38,10 +40,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         return loc == Routes.splash ? null : Routes.splash;
       }
       if (status == AuthStatus.unauthenticated) {
-        return loc == Routes.login ? null : Routes.login;
+        // 登入前也要能進「設定」(改 server 位址 / 開 Mock)與註冊。
+        const allowed = {Routes.login, Routes.register, Routes.settings};
+        return allowed.contains(loc) ? null : Routes.login;
       }
       // authenticated
-      if (loc == Routes.login || loc == Routes.splash) return Routes.meetings;
+      if (loc == Routes.login ||
+          loc == Routes.register ||
+          loc == Routes.splash) {
+        return Routes.meetings;
+      }
       return null;
     },
     routes: [
@@ -50,6 +58,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           builder: (_, _) => const SplashScreen()),
       GoRoute(
           path: Routes.login, builder: (_, _) => const LoginScreen()),
+      GoRoute(
+          path: Routes.register, builder: (_, _) => const RegisterScreen()),
       GoRoute(
           path: Routes.meetings,
           builder: (_, _) => const MeetingsListScreen()),

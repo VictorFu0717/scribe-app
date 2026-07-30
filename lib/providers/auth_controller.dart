@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/api_exception.dart';
 import '../models/auth_token.dart';
+import '../services/backend.dart';
 import 'service_providers.dart';
 import 'settings_controller.dart';
 
@@ -69,12 +70,22 @@ class AuthController extends Notifier<AuthState> {
   Future<bool> login({
     required String username,
     required String password,
-  }) async {
+  }) =>
+      _authenticate('登入', (b) => b.login(username: username, password: password));
+
+  Future<bool> register({
+    required String username,
+    required String password,
+  }) =>
+      _authenticate(
+          '註冊', (b) => b.register(username: username, password: password));
+
+  /// 共用:呼叫後端登入/註冊 → 存 token → 標記已登入(JWT 之後靠 [_restore] 自動登入)。
+  Future<bool> _authenticate(
+      String action, Future<AuthToken> Function(Backend) call) async {
     state = state.copyWith(loading: true, clearError: true);
     try {
-      final token = await ref
-          .read(backendProvider)
-          .login(username: username, password: password);
+      final token = await call(ref.read(backendProvider));
       // mock 後端不會經過 TokenStorage,補寫一次以利 restore。
       await ref.read(tokenStorageProvider).write(token);
       state = AuthState(status: AuthStatus.authenticated, token: token);
@@ -83,7 +94,7 @@ class AuthController extends Notifier<AuthState> {
       state = state.copyWith(loading: false, error: e.message);
       return false;
     } catch (e) {
-      state = state.copyWith(loading: false, error: '登入失敗:$e');
+      state = state.copyWith(loading: false, error: '$action失敗:$e');
       return false;
     }
   }

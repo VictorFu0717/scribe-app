@@ -2,51 +2,53 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/config/app_config.dart';
 import '../../core/theme/app_style.dart';
 import '../../providers/auth_controller.dart';
-import '../../providers/settings_controller.dart';
-import '../../routing/app_router.dart';
 import '../../widgets/brand_background.dart';
 import '../../widgets/brand_wave.dart';
 import '../../widgets/gradient_button.dart';
 import '../../widgets/soft_card.dart';
 
-class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+class RegisterScreen extends ConsumerStatefulWidget {
+  const RegisterScreen({super.key});
 
   @override
-  ConsumerState<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
 }
 
-class _LoginScreenState extends ConsumerState<LoginScreen> {
+class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  final _confirmCtrl = TextEditingController();
 
   @override
   void dispose() {
     _userCtrl.dispose();
     _passCtrl.dispose();
+    _confirmCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
-    await ref.read(authControllerProvider.notifier).login(
+    final ok = await ref.read(authControllerProvider.notifier).register(
           username: _userCtrl.text.trim(),
           password: _passCtrl.text,
         );
+    // 成功後 auth 狀態變 authenticated,router 會自動導向會議清單。
+    if (ok && mounted) context.go('/');
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
-    final settings = ref.watch(settingsProvider);
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
+      appBar: AppBar(backgroundColor: Colors.transparent),
+      extendBodyBehindAppBar: true,
       body: BrandBackground(
         child: SafeArea(
           child: Center(
@@ -56,23 +58,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 constraints: const BoxConstraints(maxWidth: 440),
                 child: Column(
                   children: [
-                    const SizedBox(height: 12),
-                    const BrandWave(size: 68),
-                    const SizedBox(height: 20),
-                    Text(AppConfig.appName,
+                    const BrandWave(size: 56),
+                    const SizedBox(height: 16),
+                    Text('建立帳號',
                         textAlign: TextAlign.center,
                         style: Theme.of(context)
                             .textTheme
-                            .displaySmall
-                            ?.copyWith(fontSize: 34)),
-                    const SizedBox(height: 6),
-                    Text('錄音 · 逐字稿 · 摘要 · AI 助理',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            color: scheme.outline,
-                            fontSize: 15,
-                            letterSpacing: 0.2)),
-                    const SizedBox(height: 32),
+                            .headlineMedium
+                            ?.copyWith(fontSize: 28)),
+                    const SizedBox(height: 24),
                     SoftCard(
                       padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
                       child: Form(
@@ -80,15 +74,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Text('登入',
-                                style: Theme.of(context).textTheme.titleLarge),
-                            const SizedBox(height: 4),
-                            Text('使用公司帳號',
-                                style: TextStyle(color: scheme.outline)),
-                            const SizedBox(height: 20),
                             TextFormField(
                               controller: _userCtrl,
-                              autofillHints: const [AutofillHints.username],
+                              autofillHints: const [AutofillHints.newUsername],
                               textInputAction: TextInputAction.next,
                               decoration: const InputDecoration(
                                 labelText: '帳號',
@@ -102,15 +90,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             TextFormField(
                               controller: _passCtrl,
                               obscureText: true,
-                              autofillHints: const [AutofillHints.password],
-                              textInputAction: TextInputAction.done,
-                              onFieldSubmitted: (_) => _submit(),
+                              autofillHints: const [AutofillHints.newPassword],
+                              textInputAction: TextInputAction.next,
                               decoration: const InputDecoration(
                                 labelText: '密碼',
                                 prefixIcon: Icon(Icons.lock_outline),
                               ),
+                              validator: (v) => (v == null || v.length < 4)
+                                  ? '密碼至少 4 個字元'
+                                  : null,
+                            ),
+                            const SizedBox(height: 14),
+                            TextFormField(
+                              controller: _confirmCtrl,
+                              obscureText: true,
+                              textInputAction: TextInputAction.done,
+                              onFieldSubmitted: (_) => _submit(),
+                              decoration: const InputDecoration(
+                                labelText: '確認密碼',
+                                prefixIcon: Icon(Icons.lock_outline),
+                              ),
                               validator: (v) =>
-                                  (v == null || v.isEmpty) ? '請輸入密碼' : null,
+                                  v != _passCtrl.text ? '兩次密碼不一致' : null,
                             ),
                             if (auth.error != null) ...[
                               const SizedBox(height: 16),
@@ -118,22 +119,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             ],
                             const SizedBox(height: 24),
                             GradientButton(
-                              label: '登入',
+                              label: '註冊並登入',
                               loading: auth.loading,
                               onPressed: _submit,
-                              icon: Icons.arrow_forward_rounded,
+                              icon: Icons.check_rounded,
                             ),
                             const SizedBox(height: 6),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text('還沒有帳號?',
+                                Text('已有帳號?',
                                     style: TextStyle(color: scheme.outline)),
                                 TextButton(
-                                  onPressed: auth.loading
-                                      ? null
-                                      : () => context.push(Routes.register),
-                                  child: const Text('註冊'),
+                                  onPressed:
+                                      auth.loading ? null : () => context.pop(),
+                                  child: const Text('返回登入'),
                                 ),
                               ],
                             ),
@@ -141,8 +141,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 18),
-                    _FooterHint(settings: settings),
                   ],
                 ),
               ),
@@ -175,39 +173,6 @@ class _ErrorBanner extends StatelessWidget {
                   style: TextStyle(color: scheme.error, fontSize: 13))),
         ],
       ),
-    );
-  }
-}
-
-class _FooterHint extends StatelessWidget {
-  const _FooterHint({required this.settings});
-  final Settings settings;
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    if (settings.useMock) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.science_outlined, size: 15, color: scheme.outline),
-          const SizedBox(width: 6),
-          Text('Mock 模式 · 任意帳密即可登入',
-              style: TextStyle(color: scheme.outline, fontSize: 13)),
-          TextButton(
-            onPressed: () => context.push(Routes.settings),
-            style: TextButton.styleFrom(
-                minimumSize: Size.zero,
-                padding: const EdgeInsets.symmetric(horizontal: 8)),
-            child: const Text('設定'),
-          ),
-        ],
-      );
-    }
-    return TextButton.icon(
-      onPressed: () => context.push(Routes.settings),
-      icon: const Icon(Icons.dns_outlined, size: 16),
-      label: Text(settings.baseUrl,
-          maxLines: 1, overflow: TextOverflow.ellipsis),
     );
   }
 }

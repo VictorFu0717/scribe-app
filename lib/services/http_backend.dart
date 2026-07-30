@@ -107,6 +107,25 @@ class HttpBackend implements Backend {
     });
   }
 
+  @override
+  Future<AuthToken> register({
+    required String username,
+    required String password,
+  }) {
+    return _guard(() async {
+      // POST /auth/register — JSON body → 回 token(註冊即登入)。
+      final r = await _client.post(
+        _uri('/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'username': username, 'password': password}),
+      );
+      final data = _decode(r) as Map<String, dynamic>;
+      final token = AuthToken.fromJson(data);
+      await _tokenStorage.write(token);
+      return token;
+    });
+  }
+
   // ── Meetings ──
   @override
   Future<List<Meeting>> listMeetings() {
@@ -423,13 +442,15 @@ class _HttpTranscriptionSession implements TranscriptionSession {
         cancelOnError: false,
       );
 
-      // 先送 config(開/關 diarization、指定人數、關聯 meeting_id)。
-      // server 只讀得懂的欄位會用;未知欄位會被忽略,可安全前送。
+      // 先送 config(diarization、指定人數、關聯 meeting_id、JWT)。
+      // token 也放進 config(server 支援 header / ?token= / config 三種帶法),
+      // 確保 AUTH_REQUIRED 時 WS 也能認到身分。
       channel.sink.add(jsonEncode({
         'type': 'config',
         'diarization': config.diarization,
         if (config.speakerCount != null) 'speaker_count': config.speakerCount,
         'meeting_id': meetingId,
+        if (token != null) 'token': token.accessToken,
       }));
 
       _ready = true;

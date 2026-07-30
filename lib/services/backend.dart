@@ -59,6 +59,8 @@ abstract class TranscriptionSession {
 abstract class Backend {
   // ── Auth ──
   Future<AuthToken> login({required String username, required String password});
+  Future<AuthToken> register(
+      {required String username, required String password});
 
   // ── Meetings CRUD ──
   Future<List<Meeting>> listMeetings();

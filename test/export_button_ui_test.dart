@@ -20,7 +20,7 @@ class _AuthedTokenStorage extends TokenStorage {
 
 void main() {
   testWidgets('會議詳情:逐字稿與摘要分頁都有「匯出 .txt」按鈕', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({'settings.use_mock': true});
     final prefs = await SharedPreferences.getInstance();
 
     await tester.pumpWidget(ProviderScope(

@@ -21,7 +21,7 @@ class _AuthedTokenStorage extends TokenStorage {
 
 void main() {
   testWidgets('會議詳情刪除鈕:確認後從清單移除(Mock 後端)', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({'settings.use_mock': true});
     final prefs = await SharedPreferences.getInstance();
 
     await tester.pumpWidget(ProviderScope(

@@ -22,7 +22,7 @@ class _FakeTokenStorage extends TokenStorage {
 
 void main() {
   testWidgets('登入 → 會議清單(Mock 後端全流程)', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({'settings.use_mock': true});
     final prefs = await SharedPreferences.getInstance();
 
     await tester.pumpWidget(
