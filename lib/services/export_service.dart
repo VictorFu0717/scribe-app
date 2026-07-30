@@ -1,0 +1,114 @@
+import 'dart:io';
+import 'dart:ui';
+
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+
+import '../core/utils/formatters.dart';
+import '../models/meeting.dart';
+import '../models/summary.dart';
+import '../models/transcript_segment.dart';
+
+/// 把逐字稿 / 摘要輸出成 .txt,並叫出系統分享/儲存面板
+/// (iOS「儲存到檔案」、Android 存到下載/雲端等)。
+class ExportService {
+  ExportService._();
+
+  static Future<void> exportTranscript(
+    Meeting meeting,
+    List<TranscriptSegment> segments, {
+    Rect? shareOrigin,
+  }) {
+    final name = '${_sanitize(meeting.title)}_逐字稿_${_stamp(meeting.createdAt)}';
+    return _saveAndShare(name, buildTranscriptText(meeting, segments),
+        shareOrigin);
+  }
+
+  static Future<void> exportSummary(
+    Meeting meeting,
+    MeetingSummary summary, {
+    Rect? shareOrigin,
+  }) {
+    final name = '${_sanitize(meeting.title)}_摘要_${_stamp(meeting.createdAt)}';
+    return _saveAndShare(name, buildSummaryText(meeting, summary), shareOrigin);
+  }
+
+  // ── 內容組裝 ──
+  static String buildTranscriptText(Meeting m, List<TranscriptSegment> segs) {
+    final b = StringBuffer()
+      ..writeln('會議逐字稿')
+      ..writeln(m.title)
+      ..writeln(Formatters.dateTime(m.createdAt))
+      ..writeln();
+    for (final s in segs) {
+      final t = s.text.trim();
+      if (t.isEmpty) continue;
+      b.writeln(s.speaker != null ? '${s.speaker}：$t' : t);
+    }
+    return b.toString();
+  }
+
+  static String buildSummaryText(Meeting m, MeetingSummary s) {
+    final b = StringBuffer()
+      ..writeln('會議摘要記錄')
+      ..writeln(m.title)
+      ..writeln(Formatters.dateTime(m.createdAt))
+      ..writeln();
+
+    void bulletSection(String title, List<String> lines) {
+      if (lines.isEmpty) return;
+      b.writeln('【$title】');
+      for (final l in lines) {
+        b.writeln('- $l');
+      }
+      b.writeln();
+    }
+
+    if (s.overview.isNotEmpty) {
+      b
+        ..writeln('【會議摘要】')
+        ..writeln(s.overview)
+        ..writeln();
+    }
+    bulletSection('討論重點', s.keyPoints);
+    bulletSection('決議事項', s.decisions);
+    if (s.actionItems.isNotEmpty) {
+      b.writeln('【待辦事項】');
+      for (final a in s.actionItems) {
+        final meta = [
+          if (a.owner != null) '負責人:${a.owner}',
+          if (a.due != null) '期限:${a.due}',
+        ].join('、');
+        b.writeln(meta.isEmpty ? '- ${a.task}' : '- ${a.task}($meta)');
+      }
+      b.writeln();
+    }
+    bulletSection('後續追蹤', s.followUps);
+    return b.toString();
+  }
+
+  // ── 寫檔 + 分享 ──
+  static Future<void> _saveAndShare(
+      String baseName, String text, Rect? origin) async {
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/$baseName.txt';
+    await File(path).writeAsString(text);
+    await SharePlus.instance.share(ShareParams(
+      files: [XFile(path, mimeType: 'text/plain', name: '$baseName.txt')],
+      subject: baseName,
+      sharePositionOrigin: origin, // iPad 需要錨點
+    ));
+  }
+
+  static String _sanitize(String s) {
+    final cleaned =
+        s.replaceAll(RegExp(r'[\/\\:*?"<>|\n\r\t]'), '_').trim();
+    return cleaned.isEmpty ? '會議' : cleaned;
+  }
+
+  static String _stamp(DateTime dt) {
+    final d = dt.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${d.year}${two(d.month)}${two(d.day)}';
+  }
+}

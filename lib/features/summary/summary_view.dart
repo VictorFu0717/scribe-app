@@ -2,20 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_style.dart';
+import '../../models/meeting.dart';
 import '../../models/summary.dart';
 import '../../providers/summary_controller.dart';
+import '../../services/export_service.dart';
+import '../../widgets/export_button.dart';
 import '../../widgets/gradient_button.dart';
 import '../../widgets/soft_card.dart';
 
 /// 會議摘要分頁。支援 SSE 串流即時顯示 + 結構化區塊。
 class SummaryView extends ConsumerWidget {
-  const SummaryView({super.key, required this.meetingId});
-  final String meetingId;
+  const SummaryView({super.key, required this.meeting});
+  final Meeting meeting;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(summaryControllerProvider(meetingId));
-    final notifier = ref.read(summaryControllerProvider(meetingId).notifier);
+    final state = ref.watch(summaryControllerProvider(meeting.id));
+    final notifier = ref.read(summaryControllerProvider(meeting.id).notifier);
 
     if (state.loading) {
       return const Center(child: CircularProgressIndicator());
@@ -26,12 +29,26 @@ class SummaryView extends ConsumerWidget {
     }
 
     final summary = state.summary;
+    final canExport =
+        !state.streaming && summary != null && !summary.isEmpty;
     return RefreshIndicator(
       onRefresh: notifier.generate,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         children: [
           if (state.streaming) const _StreamingBanner(),
+          if (canExport)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: ExportButton(
+                  label: '匯出摘要 .txt',
+                  onExport: (origin) =>
+                      _export(context, summary, origin),
+                ),
+              ),
+            ),
           if (summary != null && !summary.isEmpty)
             ..._structured(context, summary)
           else if (state.streamingText.isNotEmpty)
@@ -53,6 +70,18 @@ class SummaryView extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _export(
+      BuildContext context, MeetingSummary summary, Rect? origin) async {
+    try {
+      await ExportService.exportSummary(meeting, summary, shareOrigin: origin);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('匯出失敗:$e')));
+      }
+    }
   }
 
   List<Widget> _structured(BuildContext context, MeetingSummary s) {

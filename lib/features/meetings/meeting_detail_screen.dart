@@ -5,9 +5,12 @@ import 'package:go_router/go_router.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/meeting.dart';
+import '../../models/transcript_segment.dart';
 import '../../providers/meetings_controller.dart';
 import '../../providers/service_providers.dart';
+import '../../services/export_service.dart';
 import '../../widgets/audio_player_bar.dart';
+import '../../widgets/export_button.dart';
 import '../../widgets/transcript_view.dart';
 import '../assistant/assistant_screen.dart';
 import '../summary/summary_view.dart';
@@ -112,8 +115,8 @@ class _Body extends ConsumerWidget {
         Expanded(
           child: TabBarView(
             children: [
-              _TranscriptTab(meetingId: meeting.id),
-              SummaryView(meetingId: meeting.id),
+              _TranscriptTab(meeting: meeting),
+              SummaryView(meeting: meeting),
               AssistantScreen(
                 scope: meeting.id,
                 embedded: true,
@@ -127,23 +130,54 @@ class _Body extends ConsumerWidget {
 }
 
 class _TranscriptTab extends ConsumerWidget {
-  const _TranscriptTab({required this.meetingId});
-  final String meetingId;
+  const _TranscriptTab({required this.meeting});
+  final Meeting meeting;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final transcript = ref.watch(transcriptProvider(meetingId));
+    final transcript = ref.watch(transcriptProvider(meeting.id));
     return transcript.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('載入逐字稿失敗:$e')),
-      data: (segments) => RefreshIndicator(
-        onRefresh: () async => ref.invalidate(transcriptProvider(meetingId)),
-        child: TranscriptView(
-          segments: segments,
-          emptyHint: '這場會議還沒有逐字稿',
-        ),
-      ),
+      data: (segments) {
+        final view = RefreshIndicator(
+          onRefresh: () async => ref.invalidate(transcriptProvider(meeting.id)),
+          child: TranscriptView(
+            segments: segments,
+            emptyHint: '這場會議還沒有逐字稿',
+          ),
+        );
+        if (segments.isEmpty) return view;
+        return Column(
+          children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: ExportButton(
+                  label: '匯出逐字稿 .txt',
+                  onExport: (origin) => _export(context, segments, origin),
+                ),
+              ),
+            ),
+            Expanded(child: view),
+          ],
+        );
+      },
     );
+  }
+
+  Future<void> _export(
+      BuildContext context, List<TranscriptSegment> segments, Rect? origin) async {
+    try {
+      await ExportService.exportTranscript(meeting, segments,
+          shareOrigin: origin);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('匯出失敗:$e')));
+      }
+    }
   }
 }
 
