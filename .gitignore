@@ -1,6 +1,9 @@
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
 
+# Xcode SwiftPM 解析快取(build 時自動產生)
+**/xcshareddata/swiftpm/
+
 # Miscellaneous
 *.class
 *.log
