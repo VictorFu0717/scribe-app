@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/config/app_config.dart';
 import '../../providers/settings_controller.dart';
+import '../../widgets/speaker_count_picker.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -89,14 +90,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           // ── 轉錄 ──
           _header('轉錄'),
           SwitchListTile(
-            title: const Text('即時串流轉錄'),
-            subtitle: Text(settings.streamingTranscription
-                ? '邊錄邊出字(WebSocket)'
-                : '錄完整檔後上傳轉錄'),
-            value: settings.streamingTranscription,
-            onChanged: notifier.setStreamingTranscription,
-          ),
-          SwitchListTile(
             title: const Text('說話者辨識(diarization)'),
             subtitle: const Text('逐字稿標示不同說話者'),
             value: settings.diarization,
@@ -144,28 +137,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _pickSpeakerCount(
       SettingsController notifier, Settings settings) async {
-    final result = await showModalBottomSheet<int>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('指定說話者人數',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-            ),
-            ListTile(
-              title: const Text('自動偵測'),
-              onTap: () => Navigator.pop(ctx, -1),
-            ),
-            for (var n = 2; n <= 8; n++)
-              ListTile(title: Text('$n 人'), onTap: () => Navigator.pop(ctx, n)),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
+    final result = await showSpeakerCountPicker(context);
     if (result == null) return;
     notifier.setSpeakerCount(result == -1 ? null : result);
   }

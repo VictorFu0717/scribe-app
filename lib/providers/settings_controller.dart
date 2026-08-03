@@ -13,7 +13,6 @@ class Settings {
     required this.useMock,
     required this.diarization,
     this.speakerCount,
-    required this.streamingTranscription,
     required this.requireLogin,
   });
 
@@ -29,9 +28,6 @@ class Settings {
   /// 指定說話者人數(null = 自動)。
   final int? speakerCount;
 
-  /// 轉錄模式:true = 即時串流(WS);false = 整檔上傳後轉。
-  final bool streamingTranscription;
-
   /// 是否需要登入(關閉時 dev 直接進入,適用尚未做 auth 的後端)。
   final bool requireLogin;
 
@@ -41,7 +37,6 @@ class Settings {
     bool? diarization,
     int? speakerCount,
     bool clearSpeakerCount = false,
-    bool? streamingTranscription,
     bool? requireLogin,
   }) {
     return Settings(
@@ -50,8 +45,6 @@ class Settings {
       diarization: diarization ?? this.diarization,
       speakerCount:
           clearSpeakerCount ? null : (speakerCount ?? this.speakerCount),
-      streamingTranscription:
-          streamingTranscription ?? this.streamingTranscription,
       requireLogin: requireLogin ?? this.requireLogin,
     );
   }
@@ -70,7 +63,6 @@ class SettingsController extends Notifier<Settings> {
   static const _kUseMock = 'settings.use_mock';
   static const _kDiarization = 'settings.diarization';
   static const _kSpeakerCount = 'settings.speaker_count';
-  static const _kStreaming = 'settings.streaming';
   static const _kRequireLogin = 'settings.require_login';
 
   SharedPreferences get _prefs => ref.read(sharedPreferencesProvider);
@@ -84,7 +76,6 @@ class SettingsController extends Notifier<Settings> {
       diarization: p.getBool(_kDiarization) ?? false,
       speakerCount:
           p.containsKey(_kSpeakerCount) ? p.getInt(_kSpeakerCount) : null,
-      streamingTranscription: p.getBool(_kStreaming) ?? true,
       requireLogin: p.getBool(_kRequireLogin) ?? true,
     );
   }
@@ -112,11 +103,6 @@ class SettingsController extends Notifier<Settings> {
       await _prefs.setInt(_kSpeakerCount, count);
       state = state.copyWith(speakerCount: count);
     }
-  }
-
-  Future<void> setStreamingTranscription(bool value) async {
-    await _prefs.setBool(_kStreaming, value);
-    state = state.copyWith(streamingTranscription: value);
   }
 
   Future<void> setRequireLogin(bool value) async {

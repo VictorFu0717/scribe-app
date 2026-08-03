@@ -11,7 +11,6 @@ import '../services/backend.dart';
 import '../services/recording_foreground_service.dart';
 import 'meetings_controller.dart';
 import 'service_providers.dart';
-import 'settings_controller.dart';
 
 enum RecordingPhase { idle, starting, recording, paused, finalizing, error }
 
@@ -80,7 +79,6 @@ class RecordingController extends Notifier<RecordingState> {
   StreamSubscription<TranscriptUpdate>? _segSub;
   StreamSubscription<Uint8List>? _audioSub;
   Timer? _timer;
-  bool _streamingMode = true;
 
   @override
   RecordingState build() {
@@ -94,7 +92,6 @@ class RecordingController extends Notifier<RecordingState> {
     final backend = ref.read(backendProvider);
     final recorder = ref.read(audioRecorderProvider);
     final config = ref.read(transcriptionConfigProvider);
-    _streamingMode = ref.read(settingsProvider).streamingTranscription;
 
     state = RecordingState(phase: RecordingPhase.starting, title: title);
 
@@ -113,8 +110,8 @@ class RecordingController extends Notifier<RecordingState> {
 
       final meeting = await backend.createMeeting(title: title);
 
-      // 即時串流模式:開 WS 連線並訂閱逐字稿。
-      if (_streamingMode) {
+      // 開 WS 連線並訂閱即時逐字稿(手機錄音一律即時串流)。
+      {
         final session = backend.openTranscription(
           meetingId: meeting.id,
           config: config,
@@ -173,7 +170,6 @@ class RecordingController extends Notifier<RecordingState> {
     _timer?.cancel();
 
     final recorder = ref.read(audioRecorderProvider);
-    final backend = ref.read(backendProvider);
 
     // 關閉背景錄音前景服務(Android)。
     await RecordingForegroundService.stop();
@@ -185,24 +181,15 @@ class RecordingController extends Notifier<RecordingState> {
     await _audioSub?.cancel();
     _audioSub = null;
 
-    // 即時模式:通知 server 收尾。
+    // 通知 server 收尾(即時串流)。
     await _session?.stop();
     await _segSub?.cancel();
     _segSub = null;
     _session = null;
 
+    // 本地保存錄音檔(供播放/防斷線)。
     if (meetingId != null && wavPath != null) {
       await ref.read(localRecordingStoreProvider).save(meetingId, wavPath);
-      // 整檔上傳模式:錄完後上傳轉錄。
-      if (!_streamingMode) {
-        final config = ref.read(transcriptionConfigProvider);
-        try {
-          await backend.uploadAudio(meetingId, wavPath, config: config);
-        } catch (e) {
-          state = state.copyWith(
-              error: e is ApiException ? e.message : '音檔上傳失敗');
-        }
-      }
     }
 
     ref.invalidate(meetingsListProvider);

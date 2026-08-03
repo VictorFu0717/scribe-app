@@ -9,6 +9,7 @@ import '../../providers/settings_controller.dart';
 import '../../routing/app_router.dart';
 import '../../widgets/level_meter.dart';
 import '../../widgets/recording_orb.dart';
+import '../../widgets/speaker_count_picker.dart';
 import '../../widgets/soft_card.dart';
 import '../../widgets/transcript_view.dart';
 
@@ -97,26 +98,6 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          SegmentedButton<bool>(
-            showSelectedIcon: false,
-            segments: const [
-              ButtonSegment(
-                value: true,
-                label: Text('即時逐字稿'),
-                icon: Icon(Icons.bolt_rounded),
-              ),
-              ButtonSegment(
-                value: false,
-                label: Text('整檔上傳'),
-                icon: Icon(Icons.cloud_upload_outlined),
-              ),
-            ],
-            selected: {settings.streamingTranscription},
-            onSelectionChanged: (s) => ref
-                .read(settingsProvider.notifier)
-                .setStreamingTranscription(s.first),
-          ),
-          const SizedBox(height: 12),
           _ModeChips(settings: settings),
           const Spacer(),
           RecordingOrb(
@@ -134,10 +115,8 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
                     fontSize: 16,
                     fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
-          Text(
-            settings.streamingTranscription ? '即時逐字稿 · 邊錄邊出字' : '整檔上傳 · 錄完後轉錄',
-            style: TextStyle(color: scheme.outline, fontSize: 13),
-          ),
+          Text('即時逐字稿 · 邊錄邊出字',
+              style: TextStyle(color: scheme.outline, fontSize: 13)),
           const Spacer(),
         ],
       ),
@@ -336,28 +315,7 @@ class _ModeChips extends ConsumerWidget {
 
   Future<void> _pickSpeakerCount(
       BuildContext context, WidgetRef ref, Settings settings) async {
-    final result = await showModalBottomSheet<int?>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('指定說話者人數',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-            ),
-            ListTile(
-              title: const Text('自動偵測'),
-              onTap: () => Navigator.pop(ctx, -1),
-            ),
-            for (var n = 2; n <= 8; n++)
-              ListTile(title: Text('$n 人'), onTap: () => Navigator.pop(ctx, n)),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
+    final result = await showSpeakerCountPicker(context);
     if (result == null) return;
     ref
         .read(settingsProvider.notifier)

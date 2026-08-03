@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -22,7 +21,7 @@ class _AuthedTokenStorage extends TokenStorage {
 void main() {
   setUpAll(() async => initializeDateFormatting('zh_TW', null));
 
-  testWidgets('會議清單有「上傳音檔」;錄音頁可選「整檔上傳」模式', (tester) async {
+  testWidgets('會議清單有「上傳音檔」入口', (tester) async {
     SharedPreferences.setMockInitialValues({'settings.use_mock': true});
     final prefs = await SharedPreferences.getInstance();
 
@@ -37,14 +36,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump(const Duration(seconds: 1));
 
-    // 清單頁的上傳音檔入口。
+    // 清單頁的上傳音檔入口(匯入現有錄音檔)。
     expect(find.byTooltip('上傳音檔'), findsOneWidget);
 
-    // 進錄音頁 → 有模式選擇器(即時串流 / 整檔上傳)。
+    // 進錄音頁仍正常(不再有整檔上傳模式選擇器)。
     await tester.tap(find.text('開始錄音'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    expect(find.text('即時逐字稿'), findsOneWidget);
-    expect(find.text('整檔上傳'), findsOneWidget);
+    expect(find.text('點擊開始錄音'), findsOneWidget);
   });
 }
