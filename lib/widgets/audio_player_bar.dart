@@ -4,6 +4,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../core/utils/formatters.dart';
 import '../providers/service_providers.dart';
+import '../services/audio_player_service.dart';
 
 /// 會議錄音播放列(本地檔優先,否則播 server 遠端音檔)。
 class AudioPlayerBar extends ConsumerStatefulWidget {
@@ -25,15 +26,24 @@ class AudioPlayerBar extends ConsumerStatefulWidget {
 class _AudioPlayerBarState extends ConsumerState<AudioPlayerBar> {
   bool _loaded = false;
   bool _unavailable = false;
+  AudioPlayerService? _svc;
 
   @override
   void initState() {
     super.initState();
+    _svc = ref.read(audioPlayerProvider);
     _load();
   }
 
+  @override
+  void dispose() {
+    // 離開頁面時停止播放(播放器是 App 層級共用 singleton,不會自己停)。
+    _svc?.stop();
+    super.dispose();
+  }
+
   Future<void> _load() async {
-    final svc = ref.read(audioPlayerProvider);
+    final svc = _svc!; // initState 已設定
     try {
       final ok = await svc.loadForMeeting(
         localPath: widget.localPath,
