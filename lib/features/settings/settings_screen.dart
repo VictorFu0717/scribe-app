@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/config/app_config.dart';
+import '../../providers/auth_controller.dart';
 import '../../providers/settings_controller.dart';
 import '../../widgets/speaker_count_picker.dart';
 
@@ -111,6 +112,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: Text('版本'),
             subtitle: Text('${AppConfig.appName} · MVP (Flutter)'),
           ),
+
+          // 帳號:登出(僅已登入時顯示)。
+          if (ref.watch(authControllerProvider).isAuthenticated) ...[
+            const Divider(),
+            _header('帳號'),
+            ListTile(
+              leading: Icon(Icons.logout_rounded,
+                  color: Theme.of(context).colorScheme.error),
+              title: Text('登出',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              onTap: () => ref.read(authControllerProvider.notifier).logout(),
+            ),
+          ],
         ],
       ),
     );

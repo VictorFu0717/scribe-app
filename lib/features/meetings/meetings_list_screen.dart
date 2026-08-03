@@ -7,7 +7,6 @@ import '../../core/network/api_exception.dart';
 import '../../core/theme/app_style.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/meeting.dart';
-import '../../providers/auth_controller.dart';
 import '../../providers/meetings_controller.dart';
 import '../../providers/service_providers.dart';
 import '../../routing/app_router.dart';
@@ -28,28 +27,12 @@ class MeetingsListScreen extends ConsumerWidget {
         child: CustomScrollView(
           slivers: [
             SliverAppBar.large(
-              title: const Text('會議'),
+              title: const Text('會議記錄'),
               actions: [
                 IconButton(
                   tooltip: '上傳音檔',
                   icon: const Icon(Icons.upload_file_outlined),
                   onPressed: () => _importAudio(context, ref),
-                ),
-                IconButton(
-                  tooltip: '個人助理',
-                  icon: const Icon(Icons.auto_awesome_outlined),
-                  onPressed: () => context.push(Routes.assistant),
-                ),
-                IconButton(
-                  tooltip: '設定',
-                  icon: const Icon(Icons.settings_outlined),
-                  onPressed: () => context.push(Routes.settings),
-                ),
-                IconButton(
-                  tooltip: '登出',
-                  icon: const Icon(Icons.logout_rounded),
-                  onPressed: () =>
-                      ref.read(authControllerProvider.notifier).logout(),
                 ),
                 const SizedBox(width: 4),
               ],

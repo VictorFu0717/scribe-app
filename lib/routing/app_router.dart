@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../features/assistant/assistant_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/register_screen.dart';
 import '../features/auth/splash_screen.dart';
+import '../features/home/home_shell.dart';
 import '../features/meetings/meeting_detail_screen.dart';
-import '../features/meetings/meetings_list_screen.dart';
 import '../features/recording/recording_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../providers/auth_controller.dart';
@@ -20,7 +19,6 @@ class Routes {
   static const meetings = '/';
   static const record = '/record';
   static const settings = '/settings';
-  static const assistant = '/assistant';
   static String meeting(String id) => '/meeting/$id';
 }
 
@@ -61,18 +59,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
           path: Routes.register, builder: (_, _) => const RegisterScreen()),
       GoRoute(
-          path: Routes.meetings,
-          builder: (_, _) => const MeetingsListScreen()),
+          path: Routes.meetings, builder: (_, _) => const HomeShell()),
       GoRoute(
           path: Routes.record,
           builder: (_, _) => const RecordingScreen()),
+      // /settings 仍保留:未登入時可從登入頁進入(登入後則是分頁)。
       GoRoute(
           path: Routes.settings,
           builder: (_, _) => const SettingsScreen()),
-      GoRoute(
-        path: Routes.assistant,
-        builder: (_, _) => const AssistantScreen(scope: '', title: '個人助理'),
-      ),
       GoRoute(
         path: '/meeting/:id',
         builder: (_, state) =>
