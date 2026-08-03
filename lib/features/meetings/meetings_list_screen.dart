@@ -96,7 +96,14 @@ class MeetingsListScreen extends ConsumerWidget {
   Future<void> _importAudio(BuildContext context, WidgetRef ref) async {
     FilePickerResult? picked;
     try {
-      picked = await FilePicker.platform.pickFiles(type: FileType.audio);
+      // 用文件選取器(Files)挑音檔,而非 FileType.audio 的音樂庫選取器
+      // (後者在 iOS 需 NSAppleMusicUsageDescription,否則閃退,且是選歌不是選檔)。
+      picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const [
+          'wav', 'm4a', 'mp3', 'aac', 'aiff', 'caf', 'flac'
+        ],
+      );
     } catch (e) {
       if (context.mounted) _toast(context, '選取檔案失敗:$e');
       return;
