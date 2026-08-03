@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:just_audio/just_audio.dart';
 
+import 'audio_session_config.dart';
+
 /// 播放服務:本地錄音檔或 server 遠端音檔。
 class AudioPlayerService {
   final AudioPlayer _player = AudioPlayer();
@@ -28,6 +30,8 @@ class AudioPlayerService {
     Uri? remoteUri,
     Map<String, String>? headers,
   }) async {
+    // 播放前套用播放設定(走擴音,而非錄音時的聽筒路由)。
+    await AudioSessions.playback();
     if (localPath != null && await File(localPath).exists()) {
       await loadLocal(localPath);
       return true;

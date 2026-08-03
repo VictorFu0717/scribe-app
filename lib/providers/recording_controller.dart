@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/api_exception.dart';
 import '../models/transcript_segment.dart';
+import '../services/audio_session_config.dart';
 import '../services/backend.dart';
 import '../services/recording_foreground_service.dart';
 import 'meetings_controller.dart';
@@ -103,6 +104,9 @@ class RecordingController extends Notifier<RecordingState> {
             phase: RecordingPhase.error, error: '沒有麥克風權限,請到系統設定開啟。');
         return null;
       }
+
+      // 切到錄音用 audio session(playAndRecord)。
+      await AudioSessions.recording();
 
       // Android:啟動麥克風型前景服務,讓鎖屏/背景能持續錄音(iOS 為 no-op)。
       await RecordingForegroundService.start(title: title);

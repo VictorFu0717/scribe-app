@@ -97,6 +97,26 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
             ),
           ),
           const SizedBox(height: 16),
+          SegmentedButton<bool>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(
+                value: true,
+                label: Text('即時逐字稿'),
+                icon: Icon(Icons.bolt_rounded),
+              ),
+              ButtonSegment(
+                value: false,
+                label: Text('整檔上傳'),
+                icon: Icon(Icons.cloud_upload_outlined),
+              ),
+            ],
+            selected: {settings.streamingTranscription},
+            onSelectionChanged: (s) => ref
+                .read(settingsProvider.notifier)
+                .setStreamingTranscription(s.first),
+          ),
+          const SizedBox(height: 12),
           _ModeChips(settings: settings),
           const Spacer(),
           RecordingOrb(

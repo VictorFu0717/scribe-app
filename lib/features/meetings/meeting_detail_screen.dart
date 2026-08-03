@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,13 +17,52 @@ import '../../widgets/transcript_view.dart';
 import '../assistant/assistant_screen.dart';
 import '../summary/summary_view.dart';
 
-class MeetingDetailScreen extends ConsumerWidget {
+class MeetingDetailScreen extends ConsumerStatefulWidget {
   const MeetingDetailScreen({super.key, required this.meetingId});
   final String meetingId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MeetingDetailScreen> createState() =>
+      _MeetingDetailScreenState();
+}
+
+class _MeetingDetailScreenState extends ConsumerState<MeetingDetailScreen> {
+  Timer? _poll;
+  MeetingStatus? _prevStatus;
+
+  String get meetingId => widget.meetingId;
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  /// 整檔上傳/處理中時每 3 秒輪詢會議狀態;完成(ready)後刷新逐字稿與摘要。
+  void _syncPolling(MeetingStatus status) {
+    final busy = status == MeetingStatus.uploading ||
+        status == MeetingStatus.transcribing ||
+        status == MeetingStatus.processing;
+    if (busy) {
+      _poll ??= Timer.periodic(const Duration(seconds: 3),
+          (_) => ref.invalidate(meetingProvider(meetingId)));
+    } else {
+      _poll?.cancel();
+      _poll = null;
+      // 剛從處理中 → ready:把逐字稿重新拉一次(延後到 frame 後,避免在 build 期間改 provider)。
+      if (_prevStatus != null && _prevStatus != status) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) ref.invalidate(transcriptProvider(meetingId));
+        });
+      }
+    }
+    _prevStatus = status;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final meetingAsync = ref.watch(meetingProvider(meetingId));
+    meetingAsync.whenData((m) => _syncPolling(m.status));
 
     return DefaultTabController(
       length: 3,
@@ -140,11 +181,14 @@ class _TranscriptTab extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('載入逐字稿失敗:$e')),
       data: (segments) {
+        final busy = meeting.status == MeetingStatus.uploading ||
+            meeting.status == MeetingStatus.transcribing ||
+            meeting.status == MeetingStatus.processing;
         final view = RefreshIndicator(
           onRefresh: () async => ref.invalidate(transcriptProvider(meeting.id)),
           child: TranscriptView(
             segments: segments,
-            emptyHint: '這場會議還沒有逐字稿',
+            emptyHint: busy ? '轉錄中,完成後會自動顯示…' : '這場會議還沒有逐字稿',
           ),
         );
         if (segments.isEmpty) return view;

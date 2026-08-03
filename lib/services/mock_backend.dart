@@ -171,9 +171,14 @@ class MockBackend implements Backend {
     if (m == null) throw StateError('not found');
     final updated = m.copyWith(status: MeetingStatus.transcribing);
     _meetings[meetingId] = updated;
-    // 模擬非同步轉錄完成。
+    // 模擬非同步轉錄完成:2 秒後 ready 並產生逐字稿(供輪詢/匯入流程 demo)。
     Future.delayed(const Duration(seconds: 2), () {
-      _meetings[meetingId] = updated.copyWith(status: MeetingStatus.ready);
+      _meetings[meetingId] =
+          updated.copyWith(status: MeetingStatus.ready, durationSec: 90);
+      _transcripts[meetingId] = const [
+        TranscriptSegment(id: 's0', text: '(整檔上傳)這是上傳音檔轉出的逐字稿示範。', isFinal: true),
+        TranscriptSegment(id: 's1', text: '實際內容會由 server 的 Qwen3-ASR 定稿產生。', isFinal: true),
+      ];
     });
     return _delay(updated, 500);
   }

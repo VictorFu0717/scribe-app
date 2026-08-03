@@ -1,12 +1,15 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/theme/app_style.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/meeting.dart';
 import '../../providers/auth_controller.dart';
 import '../../providers/meetings_controller.dart';
+import '../../providers/service_providers.dart';
 import '../../routing/app_router.dart';
 import '../../widgets/brand_wave.dart';
 import '../../widgets/soft_card.dart';
@@ -27,6 +30,11 @@ class MeetingsListScreen extends ConsumerWidget {
             SliverAppBar.large(
               title: const Text('會議'),
               actions: [
+                IconButton(
+                  tooltip: '上傳音檔',
+                  icon: const Icon(Icons.upload_file_outlined),
+                  onPressed: () => _importAudio(context, ref),
+                ),
                 IconButton(
                   tooltip: '個人助理',
                   icon: const Icon(Icons.auto_awesome_outlined),
@@ -80,6 +88,69 @@ class MeetingsListScreen extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 匯入手機上現有的音檔 → 建會議 → 上傳給 server 背景轉錄 → 進詳情頁(會輪詢)。
+  Future<void> _importAudio(BuildContext context, WidgetRef ref) async {
+    FilePickerResult? picked;
+    try {
+      picked = await FilePicker.platform.pickFiles(type: FileType.audio);
+    } catch (e) {
+      if (context.mounted) _toast(context, '選取檔案失敗:$e');
+      return;
+    }
+    final path = picked?.files.single.path;
+    if (path == null) return; // 使用者取消
+
+    final rawName = picked!.files.single.name;
+    final dot = rawName.lastIndexOf('.');
+    final title = dot > 0 ? rawName.substring(0, dot) : rawName;
+
+    if (context.mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const _UploadingDialog(),
+      );
+    }
+    try {
+      final backend = ref.read(backendProvider);
+      final config = ref.read(transcriptionConfigProvider);
+      final meeting = await backend.createMeeting(title: title);
+      await backend.uploadAudio(meeting.id, path, config: config);
+      ref.invalidate(meetingsListProvider);
+      if (context.mounted) {
+        Navigator.of(context).pop(); // 關閉上傳中對話框
+        context.push(Routes.meeting(meeting.id));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        _toast(context, e is ApiException ? e.message : '上傳失敗:$e');
+      }
+    }
+  }
+
+  void _toast(BuildContext context, String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+}
+
+class _UploadingDialog extends StatelessWidget {
+  const _UploadingDialog();
+  @override
+  Widget build(BuildContext context) {
+    return const AlertDialog(
+      content: Row(
+        children: [
+          SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.5)),
+          SizedBox(width: 16),
+          Expanded(child: Text('上傳中…')),
+        ],
       ),
     );
   }
