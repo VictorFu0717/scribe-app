@@ -14,6 +14,7 @@ class Settings {
     required this.diarization,
     this.speakerCount,
     required this.requireLogin,
+    required this.keepScreenOn,
   });
 
   /// scribe server base URL(唯一對外入口)。負責 auth、會議、轉錄、摘要、助理。
@@ -31,6 +32,9 @@ class Settings {
   /// 是否需要登入(關閉時 dev 直接進入,適用尚未做 auth 的後端)。
   final bool requireLogin;
 
+  /// 錄音時螢幕常亮(避免自動鎖屏 → App 被 iOS 暫停而中斷長時間背景錄音)。
+  final bool keepScreenOn;
+
   Settings copyWith({
     String? baseUrl,
     bool? useMock,
@@ -38,6 +42,7 @@ class Settings {
     int? speakerCount,
     bool clearSpeakerCount = false,
     bool? requireLogin,
+    bool? keepScreenOn,
   }) {
     return Settings(
       baseUrl: baseUrl ?? this.baseUrl,
@@ -46,6 +51,7 @@ class Settings {
       speakerCount:
           clearSpeakerCount ? null : (speakerCount ?? this.speakerCount),
       requireLogin: requireLogin ?? this.requireLogin,
+      keepScreenOn: keepScreenOn ?? this.keepScreenOn,
     );
   }
 }
@@ -64,6 +70,7 @@ class SettingsController extends Notifier<Settings> {
   static const _kDiarization = 'settings.diarization';
   static const _kSpeakerCount = 'settings.speaker_count';
   static const _kRequireLogin = 'settings.require_login';
+  static const _kKeepScreenOn = 'settings.keep_screen_on';
 
   SharedPreferences get _prefs => ref.read(sharedPreferencesProvider);
 
@@ -77,6 +84,7 @@ class SettingsController extends Notifier<Settings> {
       speakerCount:
           p.containsKey(_kSpeakerCount) ? p.getInt(_kSpeakerCount) : null,
       requireLogin: p.getBool(_kRequireLogin) ?? true,
+      keepScreenOn: p.getBool(_kKeepScreenOn) ?? true,
     );
   }
 
@@ -108,5 +116,10 @@ class SettingsController extends Notifier<Settings> {
   Future<void> setRequireLogin(bool value) async {
     await _prefs.setBool(_kRequireLogin, value);
     state = state.copyWith(requireLogin: value);
+  }
+
+  Future<void> setKeepScreenOn(bool value) async {
+    await _prefs.setBool(_kKeepScreenOn, value);
+    state = state.copyWith(keepScreenOn: value);
   }
 }

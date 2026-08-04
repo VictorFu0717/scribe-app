@@ -91,6 +91,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           // ── 轉錄 ──
           _header('轉錄'),
           SwitchListTile(
+            title: const Text('錄音時螢幕常亮'),
+            subtitle: const Text('避免自動鎖屏中斷長時間背景錄音'),
+            value: settings.keepScreenOn,
+            onChanged: notifier.setKeepScreenOn,
+          ),
+          SwitchListTile(
             title: const Text('說話者辨識(diarization)'),
             subtitle: const Text('逐字稿標示不同說話者'),
             value: settings.diarization,

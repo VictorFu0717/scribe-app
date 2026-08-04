@@ -23,6 +23,12 @@ void main() {
   setUpAll(() async => initializeDateFormatting('zh_TW', null));
 
   testWidgets('底部三分頁:會議記錄 / AI 助理 / 設定,可切換', (tester) async {
+    // 維持預設寬度、加高視窗,讓設定頁底部的「登出」在已建範圍內(ListView 懶載入)。
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     SharedPreferences.setMockInitialValues({'settings.use_mock': true});
     final prefs = await SharedPreferences.getInstance();
 

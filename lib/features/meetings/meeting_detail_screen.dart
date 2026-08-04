@@ -184,11 +184,20 @@ class _TranscriptTab extends ConsumerWidget {
         final busy = meeting.status == MeetingStatus.uploading ||
             meeting.status == MeetingStatus.transcribing ||
             meeting.status == MeetingStatus.processing;
+        // 轉錄中且尚無逐字稿:顯示明確的處理中狀態 + 手動重新整理(避免「一直轉錄中」)。
+        if (segments.isEmpty && busy) {
+          return _TranscribingPlaceholder(
+            onRefresh: () {
+              ref.invalidate(meetingProvider(meeting.id));
+              ref.invalidate(transcriptProvider(meeting.id));
+            },
+          );
+        }
         final view = RefreshIndicator(
           onRefresh: () async => ref.invalidate(transcriptProvider(meeting.id)),
           child: TranscriptView(
             segments: segments,
-            emptyHint: busy ? '轉錄中,完成後會自動顯示…' : '這場會議還沒有逐字稿',
+            emptyHint: '這場會議還沒有逐字稿',
           ),
         );
         if (segments.isEmpty) return view;
@@ -257,6 +266,44 @@ class _StatusChip extends StatelessWidget {
               style: TextStyle(
                   color: color, fontSize: 12, fontWeight: FontWeight.w600)),
         ],
+      ),
+    );
+  }
+}
+
+/// 轉錄處理中的佔位畫面(含手動重新整理),避免使用者卡在「一直轉錄中」不知能做什麼。
+class _TranscribingPlaceholder extends StatelessWidget {
+  const _TranscribingPlaceholder({required this.onRefresh});
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 3)),
+            const SizedBox(height: 20),
+            const Text('轉錄中,完成後會自動顯示…',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Text('長會議需要一些時間;若等太久可手動重新整理。',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: scheme.outline)),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('重新整理'),
+            ),
+          ],
+        ),
       ),
     );
   }

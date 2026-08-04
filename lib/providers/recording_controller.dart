@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../core/network/api_exception.dart';
 import '../models/transcript_segment.dart';
@@ -11,6 +13,7 @@ import '../services/backend.dart';
 import '../services/recording_foreground_service.dart';
 import 'meetings_controller.dart';
 import 'service_providers.dart';
+import 'settings_controller.dart';
 
 enum RecordingPhase { idle, starting, recording, paused, finalizing, error }
 
@@ -78,6 +81,7 @@ class RecordingController extends Notifier<RecordingState> {
   TranscriptionSession? _session;
   StreamSubscription<TranscriptUpdate>? _segSub;
   StreamSubscription<Uint8List>? _audioSub;
+  StreamSubscription<AudioInterruptionEvent>? _interruptSub;
   Timer? _timer;
 
   @override
@@ -104,6 +108,16 @@ class RecordingController extends Notifier<RecordingState> {
 
       // 切到錄音用 audio session(playAndRecord)。
       await AudioSessions.recording();
+
+      // 錄音時螢幕常亮(避免自動鎖屏 → App 被 iOS 暫停中斷背景錄音)。
+      if (ref.read(settingsProvider).keepScreenOn) {
+        try {
+          await WakelockPlus.enable();
+        } catch (_) {}
+      }
+
+      // 音訊中斷(來電/通知/其他 App 搶音訊)結束後自動續錄。
+      await _listenInterruptions();
 
       // Android:啟動麥克風型前景服務,讓鎖屏/背景能持續錄音(iOS 為 no-op)。
       await RecordingForegroundService.start(title: title);
@@ -171,7 +185,8 @@ class RecordingController extends Notifier<RecordingState> {
 
     final recorder = ref.read(audioRecorderProvider);
 
-    // 關閉背景錄音前景服務(Android)。
+    // 關閉背景保活(wakelock / 中斷監聽)與前景服務。
+    await _releaseKeepAlive();
     await RecordingForegroundService.stop();
 
     String? wavPath;
@@ -213,8 +228,36 @@ class RecordingController extends Notifier<RecordingState> {
     });
   }
 
+  /// 監聽音訊中斷;中斷結束後若仍在錄音,重新啟用 session 並續錄。
+  Future<void> _listenInterruptions() async {
+    try {
+      final session = await AudioSession.instance;
+      _interruptSub = session.interruptionEventStream.listen((event) async {
+        if (event.begin) return; // 中斷開始:record 會自動暫停
+        if (state.phase != RecordingPhase.recording) return;
+        try {
+          await AudioSessions.recording();
+          final recorder = ref.read(audioRecorderProvider);
+          if (!await recorder.isRecording) {
+            await recorder.resume();
+          }
+        } catch (_) {}
+      });
+    } catch (_) {}
+  }
+
+  /// 停止背景保活資源(wakelock / 中斷監聽)。
+  Future<void> _releaseKeepAlive() async {
+    await _interruptSub?.cancel();
+    _interruptSub = null;
+    try {
+      await WakelockPlus.disable();
+    } catch (_) {}
+  }
+
   Future<void> _teardown() async {
     _timer?.cancel();
+    await _releaseKeepAlive();
     await RecordingForegroundService.stop();
     await _audioSub?.cancel();
     await _segSub?.cancel();
