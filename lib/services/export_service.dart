@@ -33,6 +33,25 @@ class ExportService {
     return _saveAndShare(name, buildSummaryText(meeting, summary), shareOrigin);
   }
 
+  /// 分享本地錄音檔(iOS「儲存到檔案」、AirDrop、其他 App…)。
+  /// 直接分享沙盒內的原檔,只把顯示檔名換成好認的名稱,不額外複製大檔。
+  static Future<void> exportAudio(
+    Meeting meeting,
+    String audioPath, {
+    Rect? shareOrigin,
+  }) async {
+    if (!await File(audioPath).exists()) {
+      throw StateError('找不到本地錄音檔(可能已被清除)');
+    }
+    final ext = _ext(audioPath);
+    final name = '${_sanitize(meeting.title)}_錄音_${_stamp(meeting.createdAt)}.$ext';
+    await SharePlus.instance.share(ShareParams(
+      files: [XFile(audioPath, mimeType: _audioMime(ext), name: name)],
+      subject: name,
+      sharePositionOrigin: shareOrigin,
+    ));
+  }
+
   // ── 內容組裝 ──
   static String buildTranscriptText(Meeting m, List<TranscriptSegment> segs) {
     final b = StringBuffer()
@@ -98,6 +117,32 @@ class ExportService {
       subject: baseName,
       sharePositionOrigin: origin, // iPad 需要錨點
     ));
+  }
+
+  static String _ext(String path) {
+    final i = path.lastIndexOf('.');
+    return i >= 0 ? path.substring(i + 1).toLowerCase() : 'wav';
+  }
+
+  static String _audioMime(String ext) {
+    switch (ext) {
+      case 'wav':
+        return 'audio/wav';
+      case 'm4a':
+        return 'audio/mp4';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'aac':
+        return 'audio/aac';
+      case 'aiff':
+        return 'audio/aiff';
+      case 'caf':
+        return 'audio/x-caf';
+      case 'flac':
+        return 'audio/flac';
+      default:
+        return 'application/octet-stream';
+    }
   }
 
   static String _sanitize(String s) {

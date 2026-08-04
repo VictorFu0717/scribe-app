@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -121,6 +122,8 @@ class _Body extends ConsumerWidget {
     final remoteUri = meeting.remoteAudioUrl != null
         ? backend.resolveUri(meeting.remoteAudioUrl!)
         : null;
+    // 只有手機錄下、沙盒裡實際存在的檔案才可分享(匯入的檔在 server、使用者本機已有)。
+    final canShareAudio = localPath != null && File(localPath).existsSync();
 
     return Column(
       children: [
@@ -143,13 +146,23 @@ class _Body extends ConsumerWidget {
         if (localPath != null || remoteUri != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-            child: FutureBuilder<Map<String, String>>(
-              future: backend.authHeaders(),
-              builder: (context, snap) => AudioPlayerBar(
-                localPath: localPath,
-                remoteUri: remoteUri,
-                headers: snap.data,
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: FutureBuilder<Map<String, String>>(
+                    future: backend.authHeaders(),
+                    builder: (context, snap) => AudioPlayerBar(
+                      localPath: localPath,
+                      remoteUri: remoteUri,
+                      headers: snap.data,
+                    ),
+                  ),
+                ),
+                if (canShareAudio) ...[
+                  const SizedBox(width: 4),
+                  _ShareAudioButton(meeting: meeting, audioPath: localPath),
+                ],
+              ],
             ),
           ),
         const Divider(height: 1),
@@ -306,6 +319,38 @@ class _TranscribingPlaceholder extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 分享本地錄音檔:叫出系統分享面板(存到「檔案」、AirDrop、其他 App…)。
+/// 點擊時把自身位置當 iPad 分享面板錨點傳給 ExportService。
+class _ShareAudioButton extends StatelessWidget {
+  const _ShareAudioButton({required this.meeting, required this.audioPath});
+  final Meeting meeting;
+  final String audioPath;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: '分享錄音檔',
+      icon: const Icon(Icons.ios_share),
+      onPressed: () => _share(context),
+    );
+  }
+
+  Future<void> _share(BuildContext context) async {
+    final box = context.findRenderObject() as RenderBox?;
+    final origin = (box != null && box.hasSize)
+        ? box.localToGlobal(Offset.zero) & box.size
+        : null;
+    try {
+      await ExportService.exportAudio(meeting, audioPath, shareOrigin: origin);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('分享失敗:$e')));
+      }
+    }
   }
 }
 
