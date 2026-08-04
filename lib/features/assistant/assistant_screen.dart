@@ -63,12 +63,18 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
       if (next.streaming) _scrollToBottom();
     });
 
-    final body = Column(
+    final scoped = widget.scope.isNotEmpty;
+
+    // 點對話區任一空白處即收起鍵盤(多行輸入框 Enter 是換行、不會自動收)。
+    final body = GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      behavior: HitTestBehavior.translucent,
+      child: Column(
       children: [
         Expanded(
           child: state.messages.isEmpty
               ? _EmptyHint(
-                  scoped: widget.scope.isNotEmpty,
+                  scoped: scoped,
                   onPick: (q) {
                     _inputCtrl.text = q;
                     _send();
@@ -77,6 +83,8 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
               : ListView.builder(
                   controller: _scrollCtrl,
                   padding: const EdgeInsets.symmetric(vertical: 12),
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
                   itemCount: state.messages.length,
                   itemBuilder: (_, i) => ChatBubble(message: state.messages[i]),
                 ),
@@ -89,6 +97,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
           ),
         _InputBar(
           controller: _inputCtrl,
+          hintText: scoped ? '問問這場會議的內容…' : '問問所有會議的內容…',
           streaming: state.streaming,
           onSend: _send,
           onStop: () => ref
@@ -96,6 +105,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
               .stop(),
         ),
       ],
+      ),
     );
 
     if (widget.embedded) return body;
@@ -122,12 +132,14 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
 class _InputBar extends StatelessWidget {
   const _InputBar({
     required this.controller,
+    required this.hintText,
     required this.streaming,
     required this.onSend,
     required this.onStop,
   });
 
   final TextEditingController controller;
+  final String hintText;
   final bool streaming;
   final VoidCallback onSend;
   final VoidCallback onStop;
@@ -151,10 +163,10 @@ class _InputBar extends StatelessWidget {
               minLines: 1,
               maxLines: 5,
               textInputAction: TextInputAction.newline,
-              decoration: const InputDecoration(
-                hintText: '問問這場/所有會議的內容…',
+              decoration: InputDecoration(
+                hintText: hintText,
                 contentPadding:
-                    EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               ),
             ),
           ),
