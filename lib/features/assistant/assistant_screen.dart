@@ -70,41 +70,44 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
       onTap: () => FocusScope.of(context).unfocus(),
       behavior: HitTestBehavior.translucent,
       child: Column(
-      children: [
-        Expanded(
-          child: state.messages.isEmpty
-              ? _EmptyHint(
-                  scoped: scoped,
-                  onPick: (q) {
-                    _inputCtrl.text = q;
-                    _send();
-                  },
-                )
-              : ListView.builder(
-                  controller: _scrollCtrl,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  itemCount: state.messages.length,
-                  itemBuilder: (_, i) => ChatBubble(message: state.messages[i]),
-                ),
-        ),
-        if (state.error != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text(state.error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        children: [
+          Expanded(
+            child: state.messages.isEmpty
+                ? _EmptyHint(
+                    scoped: scoped,
+                    onPick: (q) {
+                      _inputCtrl.text = q;
+                      _send();
+                    },
+                  )
+                : ListView.builder(
+                    controller: _scrollCtrl,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    itemCount: state.messages.length,
+                    itemBuilder: (_, i) =>
+                        ChatBubble(message: state.messages[i]),
+                  ),
           ),
-        _InputBar(
-          controller: _inputCtrl,
-          hintText: scoped ? '問問這場會議的內容…' : '問問所有會議的內容…',
-          streaming: state.streaming,
-          onSend: _send,
-          onStop: () => ref
-              .read(assistantControllerProvider(widget.scope).notifier)
-              .stop(),
-        ),
-      ],
+          if (state.error != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Text(
+                state.error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          _InputBar(
+            controller: _inputCtrl,
+            hintText: scoped ? '問問這場會議的內容…' : '問問所有會議的內容…',
+            streaming: state.streaming,
+            onSend: _send,
+            onStop: () => ref
+                .read(assistantControllerProvider(widget.scope).notifier)
+                .stop(),
+          ),
+        ],
       ),
     );
 
@@ -171,7 +174,9 @@ class _InputBar extends StatelessWidget {
                   decoration: InputDecoration(
                     hintText: hintText,
                     contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
                   ),
                 ),
               ),
@@ -186,8 +191,11 @@ class _InputBar extends StatelessWidget {
 }
 
 class _SendButton extends StatelessWidget {
-  const _SendButton(
-      {required this.streaming, required this.onSend, required this.onStop});
+  const _SendButton({
+    required this.streaming,
+    required this.onSend,
+    required this.onStop,
+  });
   final bool streaming;
   final VoidCallback onSend;
   final VoidCallback onStop;
@@ -198,7 +206,10 @@ class _SendButton extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: AppGradients.brand,
-        boxShadow: AppShadows.glow(AppGradients.brand.colors.last, strength: 0.3),
+        boxShadow: AppShadows.glow(
+          AppGradients.brand.colors.last,
+          strength: 0.3,
+        ),
       ),
       child: Material(
         color: Colors.transparent,
@@ -230,44 +241,61 @@ class _EmptyHint extends StatelessWidget {
     final suggestions = scoped
         ? const ['這場會議的重點是什麼?', '有哪些待辦事項?', '做了哪些決議?']
         : const ['上週有哪些決議?', '目前所有未完成的待辦?', '幫我找關於「架構」的討論'];
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                gradient: AppGradients.accent,
-                shape: BoxShape.circle,
-                boxShadow: AppShadows.glow(
-                    AppGradients.accent.colors.last,
-                    strength: 0.35),
+    // 內容較高時可捲動,避免鍵盤彈出使可用高度變小而 bottom overflow。
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      gradient: AppGradients.accent,
+                      shape: BoxShape.circle,
+                      boxShadow: AppShadows.glow(
+                        AppGradients.accent.colors.last,
+                        strength: 0.35,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.auto_awesome,
+                      size: 32,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    scoped ? '詢問這場會議' : '詢問你的所有會議',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('會檢索逐字稿與摘要後回答', style: TextStyle(color: scheme.outline)),
+                  const SizedBox(height: 20),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: suggestions
+                        .map(
+                          (q) => ActionChip(
+                            label: Text(q),
+                            onPressed: () => onPick(q),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
               ),
-              child: const Icon(Icons.auto_awesome,
-                  size: 32, color: Colors.white),
             ),
-            const SizedBox(height: 16),
-            Text(scoped ? '詢問這場會議' : '詢問你的所有會議',
-                style:
-                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            Text('會檢索逐字稿與摘要後回答',
-                style: TextStyle(color: scheme.outline)),
-            const SizedBox(height: 20),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: suggestions
-                  .map((q) => ActionChip(
-                        label: Text(q),
-                        onPressed: () => onPick(q),
-                      ))
-                  .toList(),
-            ),
-          ],
+          ),
         ),
       ),
     );
