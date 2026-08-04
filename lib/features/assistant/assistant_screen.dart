@@ -148,31 +148,38 @@ class _InputBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: EdgeInsets.fromLTRB(
-          12, 8, 12, 8 + MediaQuery.viewInsetsOf(context).bottom),
       decoration: BoxDecoration(
         color: scheme.surface,
         border: Border(top: BorderSide(color: scheme.outlineVariant)),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: TextField(
-              controller: controller,
-              minLines: 1,
-              maxLines: 5,
-              textInputAction: TextInputAction.newline,
-              decoration: InputDecoration(
-                hintText: hintText,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      // 由 Scaffold(resizeToAvoidBottomInset,預設 true)負責把輸入列頂到鍵盤上方;
+      // 這裡只補底部安全區(Home indicator)。不可再加 viewInsets.bottom,否則鍵盤
+      // 高度被重複計算 → 嵌入(會議內)助理分頁可用高度較小時就 bottom overflow。
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  minLines: 1,
+                  maxLines: 5,
+                  textInputAction: TextInputAction.newline,
+                  decoration: InputDecoration(
+                    hintText: hintText,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              _SendButton(streaming: streaming, onSend: onSend, onStop: onStop),
+            ],
           ),
-          const SizedBox(width: 8),
-          _SendButton(streaming: streaming, onSend: onSend, onStop: onStop),
-        ],
+        ),
       ),
     );
   }
