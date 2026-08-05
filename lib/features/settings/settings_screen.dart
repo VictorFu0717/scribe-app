@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/config/app_config.dart';
 import '../../providers/auth_controller.dart';
 import '../../providers/settings_controller.dart';
+import '../../providers/translation_models_controller.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
 import '../../widgets/speaker_count_picker.dart';
@@ -121,7 +122,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: const Text('開啟翻譯'),
             subtitle: const Text('錄音時與會議逐字稿都顯示雙語(在手機上離線翻譯)'),
             value: settings.translationEnabled,
-            onChanged: notifier.setTranslationEnabled,
+            onChanged: (v) async {
+              await notifier.setTranslationEnabled(v);
+              // 一開啟就先把目前方向的模型備妥,不要等到開會才下載。
+              if (v) {
+                final s = ref.read(settingsProvider);
+                ref
+                    .read(translationModelsProvider.notifier)
+                    .ensureDownloaded([s.translationSource, s.translationTarget]);
+              }
+            },
           ),
           if (settings.translationEnabled) ...[
             // 來源/目標各自一列(直觀),右側「⇄」一鍵反轉方向。
@@ -136,6 +146,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     title: '說話的語言', current: settings.translationSource);
                 if (code != null) {
                   await notifier.setTranslationLanguages(source: code);
+                  await ref
+                      .read(translationModelsProvider.notifier)
+                      .ensureDownloaded([code]);
                 }
               },
             ),
@@ -150,6 +163,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     title: '翻譯成', current: settings.translationTarget);
                 if (code != null) {
                   await notifier.setTranslationLanguages(target: code);
+                  await ref
+                      .read(translationModelsProvider.notifier)
+                      .ensureDownloaded([code]);
                 }
               },
             ),
@@ -158,7 +174,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton.icon(
-                  onPressed: notifier.swapTranslationLanguages,
+                  onPressed: () async {
+                    await notifier.swapTranslationLanguages();
+                    final s = ref.read(settingsProvider);
+                    await ref
+                        .read(translationModelsProvider.notifier)
+                        .ensureDownloaded(
+                            [s.translationSource, s.translationTarget]);
+                  },
                   icon: const Icon(Icons.swap_horiz_rounded, size: 18),
                   label: Text(
                       '交換方向(改成 '
@@ -170,8 +193,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
             ),
+            _ModelStatusTile(
+                codes: [settings.translationSource, settings.translationTarget]),
             _note('翻譯在手機上離線進行(零延遲、不佔用 server)。'
-                '首次使用某語言需下載語言模型(約 30MB),之後離線即可用。'),
+                '每個語言的模型約 30MB,下載後永久離線可用;App 啟動時會自動先備妥中文與英文。'),
           ],
 
           const Divider(),
@@ -224,4 +249,115 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     notifier.setSpeakerCount(result == -1 ? null : result);
   }
 
+}
+
+/// 顯示目前翻譯方向所需語言模型的狀態,並可手動下載/重試。
+///
+/// ML Kit 的下載 API 不回報進度,所以「下載中」只能顯示為進行中而非百分比。
+class _ModelStatusTile extends ConsumerStatefulWidget {
+  const _ModelStatusTile({required this.codes});
+  final List<String> codes;
+
+  @override
+  ConsumerState<_ModelStatusTile> createState() => _ModelStatusTileState();
+}
+
+class _ModelStatusTileState extends ConsumerState<_ModelStatusTile> {
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  @override
+  void didUpdateWidget(_ModelStatusTile old) {
+    super.didUpdateWidget(old);
+    if (old.codes.join() != widget.codes.join()) _refresh();
+  }
+
+  void _refresh() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(translationModelsProvider.notifier).refresh(widget.codes);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final models = ref.watch(translationModelsProvider);
+    final scheme = Theme.of(context).colorScheme;
+    final notifier = ref.read(translationModelsProvider.notifier);
+    final needsAction = widget.codes.any((c) =>
+        models[c] == LanguageModelState.absent ||
+        models[c] == LanguageModelState.failed);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('語言模型',
+              style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.outline)),
+          const SizedBox(height: 4),
+          for (final code in widget.codes)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Row(
+                children: [
+                  _icon(models[code] ?? LanguageModelState.unknown, scheme),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${translationLanguageLabel(code)} · '
+                    '${_label(models[code] ?? LanguageModelState.unknown)}',
+                    style: TextStyle(fontSize: 12.5, color: scheme.outline),
+                  ),
+                ],
+              ),
+            ),
+          if (needsAction)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: OutlinedButton.icon(
+                onPressed: () => notifier.ensureDownloaded(widget.codes),
+                icon: const Icon(Icons.download_rounded, size: 18),
+                label: const Text('下載缺少的語言模型'),
+                style:
+                    OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _icon(LanguageModelState s, ColorScheme scheme) {
+    switch (s) {
+      case LanguageModelState.ready:
+        return Icon(Icons.check_circle_rounded, size: 14, color: scheme.primary);
+      case LanguageModelState.downloading:
+        return SizedBox(
+          width: 12,
+          height: 12,
+          child: CircularProgressIndicator(strokeWidth: 2, color: scheme.primary),
+        );
+      case LanguageModelState.failed:
+        return Icon(Icons.error_outline_rounded, size: 14, color: scheme.error);
+      case LanguageModelState.absent:
+        return Icon(Icons.cloud_download_outlined,
+            size: 14, color: scheme.outline);
+      case LanguageModelState.unknown:
+        return Icon(Icons.help_outline_rounded, size: 14, color: scheme.outline);
+    }
+  }
+
+  String _label(LanguageModelState s) => switch (s) {
+        LanguageModelState.ready => '已就緒(可離線)',
+        LanguageModelState.downloading => '下載中…',
+        LanguageModelState.failed => '下載失敗,可重試',
+        LanguageModelState.absent => '尚未下載(約 30MB)',
+        LanguageModelState.unknown => '檢查中…',
+      };
 }
