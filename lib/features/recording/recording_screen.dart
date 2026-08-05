@@ -155,6 +155,23 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
           child: LevelMeter(level: state.level, active: !paused),
         ),
         const SizedBox(height: 8),
+        // 音訊被中斷(來電等):明確告知,並說明會自動恢復。
+        if (state.interrupted)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: Row(
+              children: [
+                Icon(Icons.phone_paused_rounded,
+                    size: 15, color: scheme.tertiary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text('錄音暫停中(來電或其他 App 佔用音訊)—— 結束後會自動繼續',
+                      style: TextStyle(fontSize: 12, color: scheme.tertiary),
+                      maxLines: 2),
+                ),
+              ],
+            ),
+          ),
         // 即時翻譯狀態(下載模型中 / 不可用),避免沒有譯文時使用者不知原因。
         if (state.translationStatus != TranslationStatus.off)
           _TranslationStatusBar(status: state.translationStatus),

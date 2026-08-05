@@ -119,21 +119,59 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _header('翻譯'),
           SwitchListTile(
             title: const Text('開啟翻譯'),
-            subtitle: const Text('錄音時顯示雙語字幕;會議結束後自動產生整篇翻譯'),
+            subtitle: const Text('錄音時與會議逐字稿都顯示雙語(在手機上離線翻譯)'),
             value: settings.translationEnabled,
             onChanged: notifier.setTranslationEnabled,
           ),
           if (settings.translationEnabled) ...[
+            // 來源/目標各自一列(直觀),右側「⇄」一鍵反轉方向。
             ListTile(
-              title: const Text('翻譯方向'),
-              subtitle: Text(
-                  '${translationLanguageLabel(settings.translationSource)}'
-                  ' → ${translationLanguageLabel(settings.translationTarget)}'),
+              leading: const Icon(Icons.record_voice_over_outlined),
+              title: const Text('說話的語言'),
+              subtitle:
+                  Text(translationLanguageLabel(settings.translationSource)),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => _pickTranslationLanguages(notifier, settings),
+              onTap: () async {
+                final code = await showLanguagePicker(context,
+                    title: '說話的語言', current: settings.translationSource);
+                if (code != null) {
+                  await notifier.setTranslationLanguages(source: code);
+                }
+              },
             ),
-            _note('即時字幕在手機上離線翻譯(零延遲);首次使用某語言需下載語言模型'
-                '(約 30MB)。整篇翻譯由 server 產生,品質較高並會存檔。'),
+            ListTile(
+              leading: const Icon(Icons.translate_rounded),
+              title: const Text('翻譯成'),
+              subtitle:
+                  Text(translationLanguageLabel(settings.translationTarget)),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () async {
+                final code = await showLanguagePicker(context,
+                    title: '翻譯成', current: settings.translationTarget);
+                if (code != null) {
+                  await notifier.setTranslationLanguages(target: code);
+                }
+              },
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: notifier.swapTranslationLanguages,
+                  icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                  label: Text(
+                      '交換方向(改成 '
+                      '${translationLanguageLabel(settings.translationTarget)}'
+                      ' → '
+                      '${translationLanguageLabel(settings.translationSource)})'),
+                  style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact),
+                ),
+              ),
+            ),
+            _note('翻譯在手機上離線進行(零延遲、不佔用 server)。'
+                '首次使用某語言需下載語言模型(約 30MB),之後離線即可用。'),
           ],
 
           const Divider(),
@@ -186,26 +224,4 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     notifier.setSpeakerCount(result == -1 ? null : result);
   }
 
-  /// 先選來源、再選目標(來源/目標不可相同,故互為 exclude)。
-  Future<void> _pickTranslationLanguages(
-      SettingsController notifier, Settings settings) async {
-    final source = await showLanguagePicker(
-      context,
-      title: '逐字稿語言(來源)',
-      current: settings.translationSource,
-      exclude: settings.translationTarget,
-    );
-    if (source == null || !mounted) return;
-
-    final target = await showLanguagePicker(
-      context,
-      title: '翻譯成(目標)',
-      current: settings.translationTarget == source
-          ? translationLanguages.keys.firstWhere((c) => c != source)
-          : settings.translationTarget,
-      exclude: source,
-    );
-    if (target == null) return;
-    await notifier.setTranslationLanguages(source: source, target: target);
-  }
 }

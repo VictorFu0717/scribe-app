@@ -33,6 +33,26 @@ class AudioRecorderService {
     _pcmSink = File(_pcmPath!).openWrite();
     _pcmBytes = 0;
 
+    return _openStream();
+  }
+
+  /// 中斷(來電等)結束後重新開始串流,**續錄到同一個 PCM 檔**。
+  ///
+  /// 為什麼不能用 `resume()`:串流模式下,中斷會讓 `startStream` 回傳的那條
+  /// Stream 結束;即使 recorder 恢復,舊 Stream 也不會再有資料。必須重新
+  /// `startStream` 並重新訂閱。PCM sink 保持開啟,所以錄音檔接續不斷裂。
+  Future<Stream<Uint8List>> restartStream() async {
+    if (_pcmSink == null) {
+      throw StateError('尚未開始錄音,無法恢復');
+    }
+    // 清掉中斷後可能殘留的 recorder 狀態(stream 模式下 stop 僅作清理)。
+    try {
+      await _recorder.stop();
+    } catch (_) {}
+    return _openStream();
+  }
+
+  Future<Stream<Uint8List>> _openStream() async {
     final stream = await _recorder.startStream(
       const RecordConfig(
         encoder: AudioEncoder.pcm16bits,

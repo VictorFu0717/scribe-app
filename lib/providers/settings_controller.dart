@@ -152,11 +152,31 @@ class SettingsController extends Notifier<Settings> {
     state = state.copyWith(translationEnabled: value);
   }
 
-  /// 設定翻譯方向。來源與目標相同時不做任何事(無翻譯意義)。
+  /// 設定翻譯方向。
+  ///
+  /// 若新選的語言與對向相同(例如目標是英文,又把來源選成英文),就把對向換成
+  /// 原本這一邊的語言 —— 等於自動交換,而不是拒絕選擇。這樣語言清單不需要
+  /// 隱藏任何選項(先前隱藏對向語言,導致「中→英」時選不到英文當來源)。
   Future<void> setTranslationLanguages({String? source, String? target}) async {
-    final src = source ?? state.translationSource;
-    final tgt = target ?? state.translationTarget;
-    if (src == tgt) return;
+    var src = source ?? state.translationSource;
+    var tgt = target ?? state.translationTarget;
+    if (src == tgt) {
+      if (source != null) {
+        tgt = state.translationSource; // 改來源撞到目標 → 目標接手舊來源
+      } else {
+        src = state.translationTarget; // 改目標撞到來源 → 來源接手舊目標
+      }
+    }
+    if (src == tgt) return; // 極端情況(原本兩邊就相同)
+    await _prefs.setString(_kTranslationSource, src);
+    await _prefs.setString(_kTranslationTarget, tgt);
+    state = state.copyWith(translationSource: src, translationTarget: tgt);
+  }
+
+  /// 一鍵反轉翻譯方向(中→英 變 英→中)。
+  Future<void> swapTranslationLanguages() async {
+    final src = state.translationTarget;
+    final tgt = state.translationSource;
     await _prefs.setString(_kTranslationSource, src);
     await _prefs.setString(_kTranslationTarget, tgt);
     state = state.copyWith(translationSource: src, translationTarget: tgt);

@@ -45,6 +45,7 @@ class RecordingState {
     this.error,
     this.translations = const {},
     this.translationStatus = TranslationStatus.off,
+    this.interrupted = false,
   });
 
   final RecordingPhase phase;
@@ -70,6 +71,9 @@ class RecordingState {
   /// 即時翻譯的準備狀態(讓 UI 能顯示「下載模型中」或「不可用」而非靜默無譯文)。
   final TranslationStatus translationStatus;
 
+  /// 音訊正被中斷(來電、鬧鐘、其他 App 搶音訊)。中斷結束會自動恢復錄音。
+  final bool interrupted;
+
   bool get isActive =>
       phase == RecordingPhase.recording || phase == RecordingPhase.paused;
 
@@ -86,6 +90,7 @@ class RecordingState {
     bool clearError = false,
     Map<String, String>? translations,
     TranslationStatus? translationStatus,
+    bool? interrupted,
   }) {
     return RecordingState(
       phase: phase ?? this.phase,
@@ -98,6 +103,7 @@ class RecordingState {
       error: clearError ? null : (error ?? this.error),
       translations: translations ?? this.translations,
       translationStatus: translationStatus ?? this.translationStatus,
+      interrupted: interrupted ?? this.interrupted,
     );
   }
 }
@@ -193,13 +199,7 @@ class RecordingController extends Notifier<RecordingState> {
       }
 
       final pcmStream = await recorder.start(meetingId: meeting.id);
-      _audioSub = pcmStream.listen((chunk) {
-        _session?.sendAudio(chunk);
-        final lvl = _computeLevel(chunk);
-        if ((lvl - state.level).abs() > 0.02) {
-          state = state.copyWith(level: lvl);
-        }
-      });
+      _listenAudio(pcmStream);
 
       _startTimer();
       state = state.copyWith(
@@ -315,22 +315,55 @@ class RecordingController extends Notifier<RecordingState> {
     });
   }
 
-  /// 監聽音訊中斷;中斷結束後若仍在錄音,重新啟用 session 並續錄。
+  /// 訂閱 PCM 串流:送去 server 轉錄並更新音量。中斷恢復後會重新訂閱新串流。
+  void _listenAudio(Stream<Uint8List> pcmStream) {
+    _audioSub = pcmStream.listen((chunk) {
+      _session?.sendAudio(chunk);
+      final lvl = _computeLevel(chunk);
+      if ((lvl - state.level).abs() > 0.02) {
+        state = state.copyWith(level: lvl);
+      }
+    });
+  }
+
+  /// 監聽音訊中斷(來電、鬧鐘、其他 App 搶音訊)並在結束後自動恢復。
   Future<void> _listenInterruptions() async {
     try {
       final session = await AudioSession.instance;
       _interruptSub = session.interruptionEventStream.listen((event) async {
-        if (event.begin) return; // 中斷開始:record 會自動暫停
         if (state.phase != RecordingPhase.recording) return;
-        try {
-          await AudioSessions.recording();
-          final recorder = ref.read(audioRecorderProvider);
-          if (!await recorder.isRecording) {
-            await recorder.resume();
-          }
-        } catch (_) {}
+        if (event.begin) {
+          // 中斷開始:iOS 已切斷我們的麥克風輸入,標記狀態讓 UI 說明現況。
+          state = state.copyWith(interrupted: true);
+          return;
+        }
+        await _resumeAfterInterruption();
       });
     } catch (_) {}
+  }
+
+  /// 中斷結束後恢復錄音。
+  ///
+  /// 關鍵:串流模式下不能用 `resume()` —— 中斷會讓原本那條 PCM Stream 結束,
+  /// 即使 recorder 恢復也不會再有資料進來(先前就是這樣「看起來還在錄、實際已停」)。
+  /// 必須重新 startStream 並重新訂閱;PCM 續寫同一檔案,錄音檔不斷裂。
+  Future<void> _resumeAfterInterruption() async {
+    if (state.phase != RecordingPhase.recording) return;
+    try {
+      await AudioSessions.recording();
+      final recorder = ref.read(audioRecorderProvider);
+      await _audioSub?.cancel();
+      _audioSub = null;
+      final stream = await recorder.restartStream();
+      _listenAudio(stream);
+      state = state.copyWith(interrupted: false, clearError: true);
+    } catch (e) {
+      // 恢復失敗要讓使用者知道,不能靜默停止錄音。
+      state = state.copyWith(
+        interrupted: false,
+        error: '錄音被中斷後無法自動恢復,請按停止結束這段,再重新開始錄音。',
+      );
+    }
   }
 
   /// 停止背景保活資源(wakelock / 中斷監聽)。
