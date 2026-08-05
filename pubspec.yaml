@@ -48,10 +48,13 @@ dependencies:
   path_provider: ^2.1.6
   intl: ^0.20.2
   flutter_foreground_task: ^10.0.0
-  # share_plus 釘 12.x:13.1.0+ 依賴 win32 ^6,與 file_picker(win32 ^5)衝突;
-  # 12.x 用 win32 ^5,與 file_picker 8.x 相容(win32 僅 Windows 用到,本 App 只 iOS/Android)。
-  share_plus: ^12.0.2
-  file_picker: ^8.1.0
+  share_plus: ^13.3.0
+  # 選檔用 file_selector(Flutter 官方套件)而非 file_picker,原因:
+  #   - file_picker 8.x 硬寫 compileSdk 34,但其依賴 flutter_plugin_android_lifecycle 要求 36
+  #     → Android release build 失敗;且 file_picker(<12 beta)全鎖 win32 ^5,擋住 share_plus 13.x(win32 ^6)
+  #   - file_selector 無 win32 依賴,官方維護;iOS 走 UIDocumentPicker(Files),
+  #     不觸及音樂庫(不需 NSAppleMusicUsageDescription),Android 走 SAF
+  file_selector: ^1.1.0
   wakelock_plus: ^1.5.2
 
 dev_dependencies:
