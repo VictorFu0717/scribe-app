@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/config/app_config.dart';
 import '../../providers/auth_controller.dart';
 import '../../providers/settings_controller.dart';
+import '../../services/on_device_translator.dart';
+import '../../widgets/language_picker.dart';
 import '../../widgets/speaker_count_picker.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -113,6 +115,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
 
           const Divider(),
+          // ── 翻譯 ──
+          _header('翻譯'),
+          SwitchListTile(
+            title: const Text('開啟翻譯'),
+            subtitle: const Text('錄音時顯示雙語字幕;會議結束後自動產生整篇翻譯'),
+            value: settings.translationEnabled,
+            onChanged: notifier.setTranslationEnabled,
+          ),
+          if (settings.translationEnabled) ...[
+            ListTile(
+              title: const Text('翻譯方向'),
+              subtitle: Text(
+                  '${translationLanguageLabel(settings.translationSource)}'
+                  ' → ${translationLanguageLabel(settings.translationTarget)}'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _pickTranslationLanguages(notifier, settings),
+            ),
+            _note('即時字幕在手機上離線翻譯(零延遲);首次使用某語言需下載語言模型'
+                '(約 30MB)。整篇翻譯由 server 產生,品質較高並會存檔。'),
+          ],
+
+          const Divider(),
           _header('關於'),
           const ListTile(
             title: Text('版本'),
@@ -160,5 +184,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final result = await showSpeakerCountPicker(context);
     if (result == null) return;
     notifier.setSpeakerCount(result == -1 ? null : result);
+  }
+
+  /// 先選來源、再選目標(來源/目標不可相同,故互為 exclude)。
+  Future<void> _pickTranslationLanguages(
+      SettingsController notifier, Settings settings) async {
+    final source = await showLanguagePicker(
+      context,
+      title: '逐字稿語言(來源)',
+      current: settings.translationSource,
+      exclude: settings.translationTarget,
+    );
+    if (source == null || !mounted) return;
+
+    final target = await showLanguagePicker(
+      context,
+      title: '翻譯成(目標)',
+      current: settings.translationTarget == source
+          ? translationLanguages.keys.firstWhere((c) => c != source)
+          : settings.translationTarget,
+      exclude: source,
+    );
+    if (target == null) return;
+    await notifier.setTranslationLanguages(source: source, target: target);
   }
 }

@@ -227,6 +227,37 @@ class MockBackend implements Backend {
     yield const ChatChunk(done: true);
   }
 
+  // ── 翻譯 ──
+  /// Mock 翻譯:把逐字稿逐行加上目標語言標記後串流回傳(僅供 UI 流程示範)。
+  final Map<String, String> _translations = {};
+
+  @override
+  Stream<TranslateChunk> translate(String meetingId,
+      {required String target}) async* {
+    final segs = await getTranscript(meetingId);
+    final lines = segs
+        .where((s) => s.text.trim().isNotEmpty)
+        .map((s) => s.speaker != null
+            ? '${s.speaker}：[$target] ${s.text}'
+            : '[$target] ${s.text}')
+        .join('\n');
+    final text = lines.isEmpty ? '[$target] (無逐字稿)' : lines;
+    for (var i = 0; i < text.length; i += 4) {
+      await Future.delayed(const Duration(milliseconds: 20));
+      yield TranslateChunk(
+          textDelta: text.substring(i, (i + 4).clamp(0, text.length)));
+    }
+    _translations['$meetingId|$target'] = text;
+    yield const TranslateChunk(done: true);
+  }
+
+  @override
+  Future<String?> getTranslation(String meetingId,
+      {required String target}) async {
+    await Future.delayed(const Duration(milliseconds: 150));
+    return _translations['$meetingId|$target'];
+  }
+
   @override
   Uri resolveUri(String pathOrUrl) => Uri.parse(pathOrUrl);
 

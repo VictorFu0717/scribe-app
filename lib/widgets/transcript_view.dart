@@ -11,6 +11,7 @@ class TranscriptView extends StatefulWidget {
     this.autoScroll = false,
     this.padding = const EdgeInsets.all(16),
     this.emptyHint = '尚無逐字稿',
+    this.translations = const {},
   });
 
   final List<TranscriptSegment> segments;
@@ -18,6 +19,9 @@ class TranscriptView extends StatefulWidget {
   final bool autoScroll;
   final EdgeInsets padding;
   final String emptyHint;
+
+  /// 片段 id → 譯文(裝置內即時翻譯)。有值時在原文下方顯示譯文。
+  final Map<String, String> translations;
 
   @override
   State<TranscriptView> createState() => _TranscriptViewState();
@@ -67,16 +71,28 @@ class _TranscriptViewState extends State<TranscriptView> {
       itemBuilder: (_, i) {
         final seg = items[i];
         final isPartial = !seg.isFinal;
-        return _SegmentTile(segment: seg, dimmed: isPartial);
+        return _SegmentTile(
+          segment: seg,
+          dimmed: isPartial,
+          // 暫定片段不顯示譯文(文字還會變),只翻定稿。
+          translation: isPartial ? null : widget.translations[seg.id],
+        );
       },
     );
   }
 }
 
 class _SegmentTile extends StatelessWidget {
-  const _SegmentTile({required this.segment, this.dimmed = false});
+  const _SegmentTile({
+    required this.segment,
+    this.dimmed = false,
+    this.translation,
+  });
   final TranscriptSegment segment;
   final bool dimmed;
+
+  /// 裝置內翻譯的譯文;null 表示無(未開翻譯、尚未譯出或翻譯失敗)。
+  final String? translation;
 
   @override
   Widget build(BuildContext context) {
@@ -107,6 +123,27 @@ class _SegmentTile extends StatelessWidget {
               fontStyle: dimmed ? FontStyle.italic : FontStyle.normal,
             ),
           ),
+          // 譯文:左側細線 + 次要色,與原文區分但同一段落。
+          if (translation != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Container(
+                padding: const EdgeInsets.only(left: 8),
+                decoration: BoxDecoration(
+                  border: Border(
+                    left: BorderSide(color: scheme.primary.withValues(alpha: 0.4), width: 2),
+                  ),
+                ),
+                child: Text(
+                  translation!,
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.45,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

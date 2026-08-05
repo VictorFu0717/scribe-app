@@ -332,6 +332,61 @@ class HttpBackend implements Backend {
     return data;
   }
 
+  // ── 翻譯 ──
+  @override
+  Stream<TranslateChunk> translate(String meetingId,
+      {required String target}) async* {
+    final events = await _openSse(
+      'POST',
+      _uri('/meetings/$meetingId/translate'),
+      body: jsonEncode({'target': target}),
+    );
+    await for (final e in events) {
+      if (e.data == '[DONE]' || e.event == 'done') {
+        yield const TranslateChunk(done: true);
+        return;
+      }
+      if (e.data.isEmpty) continue;
+      // server 送 {"delta":"..."};出錯時送 {"error":"..."}。
+      if (e.data.trimLeft().startsWith('{')) {
+        try {
+          final j = jsonDecode(e.data);
+          if (j is Map<String, dynamic>) {
+            final err = j['error']?.toString();
+            if (err != null && err.isNotEmpty) {
+              yield TranslateChunk(error: err, done: true);
+              return;
+            }
+            final delta = (j['delta'] ?? j['text'])?.toString();
+            if (delta != null && delta.isNotEmpty) {
+              yield TranslateChunk(textDelta: delta);
+            }
+            continue;
+          }
+        } catch (_) {
+          // 非 JSON 就當純文字 delta。
+        }
+      }
+      yield TranslateChunk(textDelta: e.data);
+    }
+    yield const TranslateChunk(done: true);
+  }
+
+  @override
+  Future<String?> getTranslation(String meetingId,
+      {required String target}) {
+    return _guard(() async {
+      final r = await _client.get(
+        _uri('/meetings/$meetingId/translation', {'target': target}),
+        headers: await _headers(),
+      );
+      if (r.statusCode == 404) return null; // 尚未翻譯過
+      final data = _decode(r);
+      if (data is Map<String, dynamic>) return data['text']?.toString();
+      return null;
+    });
+  }
+
   /// 開一個 SSE 連線(POST body)。回傳事件流;非 2xx 直接丟 ApiException。
   Future<Stream<SseEvent>> _openSse(String method, Uri uri,
       {String? body}) async {

@@ -23,6 +23,17 @@ class ChatChunk {
   final bool done;
 }
 
+/// 留檔翻譯 SSE 串流的一個片段(對應 scribe `POST /meetings/{id}/translate`)。
+///
+/// server 逐塊回傳 `{"delta":"..."}`,結束送 `[DONE]`;翻完會存檔,
+/// 之後可用 `getTranslation` 重取。`error` 非 null 代表 server 端出錯。
+class TranslateChunk {
+  const TranslateChunk({this.textDelta, this.done = false, this.error});
+  final String? textDelta;
+  final bool done;
+  final String? error;
+}
+
 /// 一次即時轉錄連線(對應 `WS /transcribe/stream`)。
 ///
 /// 即時轉錄的一次「累積快照」。
@@ -95,6 +106,15 @@ abstract class Backend {
     required List<ChatMessage> messages,
     String? meetingScopeId,
   });
+
+  // ── 翻譯 ──
+  /// 整篇逐字稿的高品質留檔翻譯(SSE 串流,server 端 LLM;翻完存檔)。
+  ///
+  /// 即時雙語字幕走裝置內翻譯(見 `OnDeviceTranslatorService`),不打 server。
+  Stream<TranslateChunk> translate(String meetingId, {required String target});
+
+  /// 取回已存檔的翻譯;未翻譯過回 null。
+  Future<String?> getTranslation(String meetingId, {required String target});
 
   // ── 播放輔助 ──
   /// 將相對路徑或完整 URL 解析為可播放的 Uri。

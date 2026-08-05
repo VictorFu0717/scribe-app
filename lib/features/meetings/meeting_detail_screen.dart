@@ -11,7 +11,10 @@ import '../../models/meeting.dart';
 import '../../models/transcript_segment.dart';
 import '../../providers/meetings_controller.dart';
 import '../../providers/service_providers.dart';
+import '../../providers/settings_controller.dart';
+import '../../providers/translation_controller.dart';
 import '../../services/export_service.dart';
+import '../../services/on_device_translator.dart';
 import '../../widgets/audio_player_bar.dart';
 import '../../widgets/export_button.dart';
 import '../../widgets/transcript_view.dart';
@@ -53,7 +56,15 @@ class _MeetingDetailScreenState extends ConsumerState<MeetingDetailScreen> {
       // 剛從處理中 → ready:把逐字稿重新拉一次(延後到 frame 後,避免在 build 期間改 provider)。
       if (_prevStatus != null && _prevStatus != status) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) ref.invalidate(transcriptProvider(meetingId));
+          if (!mounted) return;
+          ref.invalidate(transcriptProvider(meetingId));
+          // 錄音/轉錄完成 → 自動產生整篇留檔翻譯(若已開啟翻譯)。
+          // ensureTranslated 會先查存檔,不會重複消耗 LLM。
+          if (ref.read(settingsProvider).translationEnabled) {
+            ref
+                .read(translationControllerProvider(meetingId).notifier)
+                .ensureTranslated();
+          }
         });
       }
     }
@@ -64,9 +75,10 @@ class _MeetingDetailScreenState extends ConsumerState<MeetingDetailScreen> {
   Widget build(BuildContext context) {
     final meetingAsync = ref.watch(meetingProvider(meetingId));
     meetingAsync.whenData((m) => _syncPolling(m.status));
+    final translationOn = ref.watch(settingsProvider).translationEnabled;
 
     return DefaultTabController(
-      length: 3,
+      length: translationOn ? 4 : 3,
       child: Scaffold(
         appBar: AppBar(
           title: Text(
@@ -94,17 +106,19 @@ class _MeetingDetailScreenState extends ConsumerState<MeetingDetailScreen> {
               borderSide: BorderSide(
                   width: 3, color: Theme.of(context).colorScheme.primary),
             ),
-            tabs: const [
-              Tab(text: '逐字稿'),
-              Tab(text: '摘要'),
-              Tab(text: '助理'),
+            tabs: [
+              const Tab(text: '逐字稿'),
+              const Tab(text: '摘要'),
+              if (translationOn) const Tab(text: '翻譯'),
+              const Tab(text: '助理'),
             ],
           ),
         ),
         body: meetingAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Center(child: Text('載入失敗:$e')),
-          data: (meeting) => _Body(meeting: meeting),
+          data: (meeting) =>
+              _Body(meeting: meeting, translationOn: translationOn),
         ),
       ),
     );
@@ -112,8 +126,9 @@ class _MeetingDetailScreenState extends ConsumerState<MeetingDetailScreen> {
 }
 
 class _Body extends ConsumerWidget {
-  const _Body({required this.meeting});
+  const _Body({required this.meeting, required this.translationOn});
   final Meeting meeting;
+  final bool translationOn;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -171,6 +186,7 @@ class _Body extends ConsumerWidget {
             children: [
               _TranscriptTab(meeting: meeting),
               SummaryView(meeting: meeting),
+              if (translationOn) _TranslationTab(meeting: meeting),
               AssistantScreen(
                 scope: meeting.id,
                 embedded: true,
@@ -318,6 +334,128 @@ class _TranscribingPlaceholder extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 整篇留檔翻譯分頁(server 端 LLM,高品質)。
+///
+/// 進入時自動確保有譯文:先讀 server 存檔,沒有才實際翻譯(不重複消耗 LLM)。
+/// 轉錄完成時外層也會自動觸發一次,所以通常進來就已經有結果。
+class _TranslationTab extends ConsumerStatefulWidget {
+  const _TranslationTab({required this.meeting});
+  final Meeting meeting;
+
+  @override
+  ConsumerState<_TranslationTab> createState() => _TranslationTabState();
+}
+
+class _TranslationTabState extends ConsumerState<_TranslationTab> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref
+          .read(translationControllerProvider(widget.meeting.id).notifier)
+          .ensureTranslated();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(translationControllerProvider(widget.meeting.id));
+    final settings = ref.watch(settingsProvider);
+    final notifier =
+        ref.read(translationControllerProvider(widget.meeting.id).notifier);
+    final scheme = Theme.of(context).colorScheme;
+    final targetLabel = translationLanguageLabel(settings.translationTarget);
+
+    if (state.error != null && !state.hasText) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('翻譯失敗:${state.error}', textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: notifier.translate,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('重試'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!state.hasText) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: CircularProgressIndicator(strokeWidth: 3)),
+              const SizedBox(height: 18),
+              Text('正在翻譯成$targetLabel…',
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              Text('整篇由 server 翻譯,品質較高;完成後會存檔,下次直接讀取。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: scheme.outline)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Row(
+            children: [
+              Text('譯文($targetLabel)',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.outline)),
+              if (state.streaming) ...[
+                const SizedBox(width: 8),
+                const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2)),
+              ],
+              const Spacer(),
+              if (!state.streaming)
+                TextButton.icon(
+                  onPressed: notifier.translate,
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  label: const Text('重新翻譯'),
+                  style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact),
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            child: SelectableText(
+              state.text,
+              style: const TextStyle(fontSize: 15, height: 1.55),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

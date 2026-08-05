@@ -9,6 +9,7 @@ import '../core/network/api_exception.dart';
 import '../models/transcript_segment.dart';
 import '../services/audio_session_config.dart';
 import '../services/keep_awake.dart';
+import '../services/on_device_translator.dart';
 import '../services/backend.dart';
 import '../services/recording_foreground_service.dart';
 import 'meetings_controller.dart';
@@ -27,6 +28,7 @@ class RecordingState {
     this.elapsed = Duration.zero,
     this.level = 0,
     this.error,
+    this.translations = const {},
   });
 
   final RecordingPhase phase;
@@ -45,6 +47,10 @@ class RecordingState {
   final double level;
   final String? error;
 
+  /// 定稿片段的譯文(key = 片段 id)。翻譯關閉、尚未譯出或翻譯失敗則無該鍵。
+  /// 由裝置內翻譯即時產生(見 [OnDeviceTranslatorService]),不打 server。
+  final Map<String, String> translations;
+
   bool get isActive =>
       phase == RecordingPhase.recording || phase == RecordingPhase.paused;
 
@@ -59,6 +65,7 @@ class RecordingState {
     double? level,
     String? error,
     bool clearError = false,
+    Map<String, String>? translations,
   }) {
     return RecordingState(
       phase: phase ?? this.phase,
@@ -69,6 +76,7 @@ class RecordingState {
       elapsed: elapsed ?? this.elapsed,
       level: level ?? this.level,
       error: clearError ? null : (error ?? this.error),
+      translations: translations ?? this.translations,
     );
   }
 }
@@ -83,6 +91,15 @@ class RecordingController extends Notifier<RecordingState> {
   StreamSubscription<Uint8List>? _audioSub;
   StreamSubscription<AudioInterruptionEvent>? _interruptSub;
   Timer? _timer;
+
+  /// 裝置內即時翻譯(雙語字幕);翻譯關閉或模型未就緒時 [_translationReady] 為 false。
+  final OnDeviceTranslatorService _translator = OnDeviceTranslatorService();
+  bool _translationReady = false;
+
+  /// 已翻譯過的原文(key = 片段 id)。server 會就地升級定稿文字,
+  /// 文字變了就得重譯,故記錄「翻譯當時的原文」而非只記已翻過。
+  final Map<String, String> _translatedSource = {};
+  bool _translating = false;
 
   @override
   RecordingState build() {
@@ -116,6 +133,20 @@ class RecordingController extends Notifier<RecordingState> {
 
       // 音訊中斷(來電/通知/其他 App 搶音訊)結束後自動續錄。
       await _listenInterruptions();
+
+      // 裝置內翻譯(雙語字幕)。首次使用某語言會下載模型,故不阻斷錄音啟動:
+      // 準備失敗就單純不顯示譯文。
+      final settings = ref.read(settingsProvider);
+      _translationReady = false;
+      _translatedSource.clear();
+      if (settings.translationEnabled) {
+        _translator
+            .prepare(settings.translationSource, settings.translationTarget)
+            .then((ok) {
+          _translationReady = ok;
+          if (ok) _translatePending();
+        });
+      }
 
       // Android:啟動麥克風型前景服務,讓鎖屏/背景能持續錄音(iOS 為 no-op)。
       await RecordingForegroundService.start(title: title);
@@ -217,6 +248,39 @@ class RecordingController extends Notifier<RecordingState> {
       partial: u.partial,
       clearPartial: u.partial == null,
     );
+    if (_translationReady) _translatePending();
+  }
+
+  /// 依序翻譯尚未翻譯(或原文被 server 升級過)的定稿片段。
+  /// 一次只跑一輪,避免快照頻繁更新造成重複翻譯。
+  Future<void> _translatePending() async {
+    if (_translating || !_translationReady) return;
+    _translating = true;
+    try {
+      // 逐句翻;每句翻完就更新 state,讓譯文陸續出現而非等全部。
+      while (true) {
+        TranscriptSegment? pending;
+        for (final s in state.finalSegments) {
+          if (s.text.trim().isNotEmpty && _translatedSource[s.id] != s.text) {
+            pending = s;
+            break;
+          }
+        }
+        if (pending == null) break;
+
+        final source = pending.text;
+        final translated = await _translator.translate(source);
+        // 記錄「已處理過這份原文」——失敗也記,避免同一句無限重試。
+        _translatedSource[pending.id] = source;
+        if (translated == null) continue;
+        state = state.copyWith(translations: {
+          ...state.translations,
+          pending.id: translated,
+        });
+      }
+    } finally {
+      _translating = false;
+    }
   }
 
   void _startTimer() {
@@ -249,6 +313,9 @@ class RecordingController extends Notifier<RecordingState> {
     await _interruptSub?.cancel();
     _interruptSub = null;
     await KeepAwake.disable();
+    _translationReady = false;
+    _translatedSource.clear();
+    await _translator.dispose();
   }
 
   Future<void> _teardown() async {

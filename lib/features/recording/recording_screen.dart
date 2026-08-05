@@ -168,6 +168,8 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
               autoScroll: true,
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
               emptyHint: '開始說話後,逐字稿會即時出現…',
+              // 裝置內即時翻譯的雙語字幕(未開翻譯時為空 map)。
+              translations: state.translations,
             ),
           ),
         ),

@@ -15,6 +15,9 @@ class Settings {
     this.speakerCount,
     required this.requireLogin,
     required this.keepScreenOn,
+    required this.translationEnabled,
+    required this.translationSource,
+    required this.translationTarget,
   });
 
   /// scribe server base URL(唯一對外入口)。負責 auth、會議、轉錄、摘要、助理。
@@ -35,6 +38,15 @@ class Settings {
   /// 錄音時螢幕常亮(避免自動鎖屏 → App 被 iOS 暫停而中斷長時間背景錄音)。
   final bool keepScreenOn;
 
+  /// 是否開啟翻譯(即時雙語字幕 + 會後整篇留檔翻譯)。
+  final bool translationEnabled;
+
+  /// 翻譯來源語言代碼(逐字稿的語言),例如 'zh' / 'en'。
+  final String translationSource;
+
+  /// 翻譯目標語言代碼,例如 'en' / 'zh'。
+  final String translationTarget;
+
   Settings copyWith({
     String? baseUrl,
     bool? useMock,
@@ -43,6 +55,9 @@ class Settings {
     bool clearSpeakerCount = false,
     bool? requireLogin,
     bool? keepScreenOn,
+    bool? translationEnabled,
+    String? translationSource,
+    String? translationTarget,
   }) {
     return Settings(
       baseUrl: baseUrl ?? this.baseUrl,
@@ -52,6 +67,9 @@ class Settings {
           clearSpeakerCount ? null : (speakerCount ?? this.speakerCount),
       requireLogin: requireLogin ?? this.requireLogin,
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
+      translationEnabled: translationEnabled ?? this.translationEnabled,
+      translationSource: translationSource ?? this.translationSource,
+      translationTarget: translationTarget ?? this.translationTarget,
     );
   }
 }
@@ -71,6 +89,9 @@ class SettingsController extends Notifier<Settings> {
   static const _kSpeakerCount = 'settings.speaker_count';
   static const _kRequireLogin = 'settings.require_login';
   static const _kKeepScreenOn = 'settings.keep_screen_on';
+  static const _kTranslationEnabled = 'settings.translation_enabled';
+  static const _kTranslationSource = 'settings.translation_source';
+  static const _kTranslationTarget = 'settings.translation_target';
 
   SharedPreferences get _prefs => ref.read(sharedPreferencesProvider);
 
@@ -85,6 +106,9 @@ class SettingsController extends Notifier<Settings> {
           p.containsKey(_kSpeakerCount) ? p.getInt(_kSpeakerCount) : null,
       requireLogin: p.getBool(_kRequireLogin) ?? true,
       keepScreenOn: p.getBool(_kKeepScreenOn) ?? true,
+      translationEnabled: p.getBool(_kTranslationEnabled) ?? false,
+      translationSource: p.getString(_kTranslationSource) ?? 'zh',
+      translationTarget: p.getString(_kTranslationTarget) ?? 'en',
     );
   }
 
@@ -121,5 +145,20 @@ class SettingsController extends Notifier<Settings> {
   Future<void> setKeepScreenOn(bool value) async {
     await _prefs.setBool(_kKeepScreenOn, value);
     state = state.copyWith(keepScreenOn: value);
+  }
+
+  Future<void> setTranslationEnabled(bool value) async {
+    await _prefs.setBool(_kTranslationEnabled, value);
+    state = state.copyWith(translationEnabled: value);
+  }
+
+  /// 設定翻譯方向。來源與目標相同時不做任何事(無翻譯意義)。
+  Future<void> setTranslationLanguages({String? source, String? target}) async {
+    final src = source ?? state.translationSource;
+    final tgt = target ?? state.translationTarget;
+    if (src == tgt) return;
+    await _prefs.setString(_kTranslationSource, src);
+    await _prefs.setString(_kTranslationTarget, tgt);
+    state = state.copyWith(translationSource: src, translationTarget: tgt);
   }
 }
