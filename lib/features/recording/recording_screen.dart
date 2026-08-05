@@ -11,6 +11,7 @@ import '../../widgets/level_meter.dart';
 import '../../widgets/recording_orb.dart';
 import '../../widgets/speaker_count_picker.dart';
 import '../../widgets/soft_card.dart';
+import '../../services/on_device_translator.dart';
 import '../../widgets/transcript_view.dart';
 
 class RecordingScreen extends ConsumerStatefulWidget {
@@ -154,6 +155,9 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
           child: LevelMeter(level: state.level, active: !paused),
         ),
         const SizedBox(height: 8),
+        // 即時翻譯狀態(下載模型中 / 不可用),避免沒有譯文時使用者不知原因。
+        if (state.translationStatus != TranslationStatus.off)
+          _TranslationStatusBar(status: state.translationStatus),
         Expanded(
           child: Container(
             margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -354,6 +358,67 @@ class _CircleAction extends StatelessWidget {
         const SizedBox(height: 6),
         Text(label, style: TextStyle(fontSize: 12, color: scheme.outline)),
       ],
+    );
+  }
+}
+
+/// 即時(裝置內)翻譯狀態列。
+///
+/// 首次使用某語言要下載模型(約 30MB),期間不會有譯文;下載失敗也要讓使用者知道,
+/// 否則只看到「沒有翻譯」卻不知原因。
+class _TranslationStatusBar extends ConsumerWidget {
+  const _TranslationStatusBar({required this.status});
+  final TranslationStatus status;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final settings = ref.watch(settingsProvider);
+    final direction =
+        '${translationLanguageLabel(settings.translationSource)}'
+        ' → ${translationLanguageLabel(settings.translationTarget)}';
+
+    late final IconData icon;
+    late final String text;
+    late final Color color;
+    switch (status) {
+      case TranslationStatus.preparing:
+        icon = Icons.cloud_download_outlined;
+        text = '正在下載語言模型($direction)…約 30MB,完成後開始顯示譯文';
+        color = scheme.primary;
+      case TranslationStatus.ready:
+        icon = Icons.translate_rounded;
+        text = '即時翻譯:$direction';
+        color = scheme.primary;
+      case TranslationStatus.unavailable:
+        icon = Icons.error_outline_rounded;
+        text = '即時翻譯不可用($direction)—— 語言模型下載失敗,請確認網路後重新開始錄音';
+        color = scheme.error;
+      case TranslationStatus.off:
+        return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      child: Row(
+        children: [
+          if (status == TranslationStatus.preparing)
+            SizedBox(
+              width: 13,
+              height: 13,
+              child: CircularProgressIndicator(strokeWidth: 2, color: color),
+            )
+          else
+            Icon(icon, size: 15, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(text,
+                style: TextStyle(fontSize: 12, color: color),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      ),
     );
   }
 }

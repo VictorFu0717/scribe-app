@@ -18,6 +18,21 @@ import 'settings_controller.dart';
 
 enum RecordingPhase { idle, starting, recording, paused, finalizing, error }
 
+/// 即時(裝置內)翻譯的狀態,顯示給使用者以便知道卡在哪。
+enum TranslationStatus {
+  /// 未開啟翻譯。
+  off,
+
+  /// 正在準備(首次使用某語言需下載模型,約 30MB)。
+  preparing,
+
+  /// 可翻譯。
+  ready,
+
+  /// 不可用(模型下載失敗、語言不支援或來源=目標)。
+  unavailable,
+}
+
 class RecordingState {
   const RecordingState({
     this.phase = RecordingPhase.idle,
@@ -29,6 +44,7 @@ class RecordingState {
     this.level = 0,
     this.error,
     this.translations = const {},
+    this.translationStatus = TranslationStatus.off,
   });
 
   final RecordingPhase phase;
@@ -51,6 +67,9 @@ class RecordingState {
   /// 由裝置內翻譯即時產生(見 [OnDeviceTranslatorService]),不打 server。
   final Map<String, String> translations;
 
+  /// 即時翻譯的準備狀態(讓 UI 能顯示「下載模型中」或「不可用」而非靜默無譯文)。
+  final TranslationStatus translationStatus;
+
   bool get isActive =>
       phase == RecordingPhase.recording || phase == RecordingPhase.paused;
 
@@ -66,6 +85,7 @@ class RecordingState {
     String? error,
     bool clearError = false,
     Map<String, String>? translations,
+    TranslationStatus? translationStatus,
   }) {
     return RecordingState(
       phase: phase ?? this.phase,
@@ -77,6 +97,7 @@ class RecordingState {
       level: level ?? this.level,
       error: clearError ? null : (error ?? this.error),
       translations: translations ?? this.translations,
+      translationStatus: translationStatus ?? this.translationStatus,
     );
   }
 }
@@ -140,10 +161,14 @@ class RecordingController extends Notifier<RecordingState> {
       _translationReady = false;
       _translatedSource.clear();
       if (settings.translationEnabled) {
+        state = state.copyWith(translationStatus: TranslationStatus.preparing);
         _translator
             .prepare(settings.translationSource, settings.translationTarget)
             .then((ok) {
           _translationReady = ok;
+          state = state.copyWith(
+              translationStatus:
+                  ok ? TranslationStatus.ready : TranslationStatus.unavailable);
           if (ok) _translatePending();
         });
       }
