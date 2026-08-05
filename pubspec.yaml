@@ -55,7 +55,9 @@ dependencies:
   #   - file_selector 無 win32 依賴,官方維護;iOS 走 UIDocumentPicker(Files),
   #     不觸及音樂庫(不需 NSAppleMusicUsageDescription),Android 走 SAF
   file_selector: ^1.1.0
-  wakelock_plus: ^1.5.2
+  # 螢幕常亮改為自行以 MethodChannel 實作(lib/services/keep_awake.dart),不用 wakelock_plus:
+  # 1.6.0~1.7.0 的 Android 端用 root-package import,在內建 Kotlin 下編譯失敗;
+  # 能編譯的 1.5.x 又鎖 win32 ^5,與 share_plus 13.x(win32 ^6)相衝。
 
 dev_dependencies:
   flutter_test:

@@ -4,11 +4,11 @@ import 'dart:typed_data';
 
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../core/network/api_exception.dart';
 import '../models/transcript_segment.dart';
 import '../services/audio_session_config.dart';
+import '../services/keep_awake.dart';
 import '../services/backend.dart';
 import '../services/recording_foreground_service.dart';
 import 'meetings_controller.dart';
@@ -111,9 +111,7 @@ class RecordingController extends Notifier<RecordingState> {
 
       // 錄音時螢幕常亮(避免自動鎖屏 → App 被 iOS 暫停中斷背景錄音)。
       if (ref.read(settingsProvider).keepScreenOn) {
-        try {
-          await WakelockPlus.enable();
-        } catch (_) {}
+        await KeepAwake.enable();
       }
 
       // 音訊中斷(來電/通知/其他 App 搶音訊)結束後自動續錄。
@@ -250,9 +248,7 @@ class RecordingController extends Notifier<RecordingState> {
   Future<void> _releaseKeepAlive() async {
     await _interruptSub?.cancel();
     _interruptSub = null;
-    try {
-      await WakelockPlus.disable();
-    } catch (_) {}
+    await KeepAwake.disable();
   }
 
   Future<void> _teardown() async {
