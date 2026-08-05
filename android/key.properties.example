@@ -1,0 +1,19 @@
+# Android 正式簽章設定範本。
+#
+# 用法:複製成同目錄的 key.properties(不含 .example),填入你的實際值。
+#   key.properties 與 keystore 檔案都已列入 .gitignore,絕對不要提交進 git。
+#
+# 產生 keystore(只需做一次,之後永久使用同一把):
+#   keytool -genkey -v -keystore C:\Users\victor\keys\scribe-upload.jks ^
+#     -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 -alias scribe
+#
+# 重要:keystore 檔案與這些密碼請異地備份。遺失後將無法再發布可覆蓋更新的版本
+#      (同事必須卸載重裝,本機錄音檔會遺失;逐字稿與摘要存在 server,不受影響)。
+
+storePassword=你的 keystore 密碼
+keyPassword=你的 key 密碼
+keyAlias=scribe
+# Windows 路徑用雙反斜線或正斜線,例如:
+#   storeFile=C:\\Users\\victor\\keys\\scribe-upload.jks
+#   storeFile=C:/Users/victor/keys/scribe-upload.jks
+storeFile=C:/Users/victor/keys/scribe-upload.jks
