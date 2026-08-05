@@ -287,9 +287,11 @@ class _ModelStatusTileState extends ConsumerState<_ModelStatusTile> {
     final models = ref.watch(translationModelsProvider);
     final scheme = Theme.of(context).colorScheme;
     final notifier = ref.read(translationModelsProvider.notifier);
+    LanguageModelState st(String c) =>
+        models[c]?.state ?? LanguageModelState.unknown;
     final needsAction = widget.codes.any((c) =>
-        models[c] == LanguageModelState.absent ||
-        models[c] == LanguageModelState.failed);
+        st(c) == LanguageModelState.absent ||
+        st(c) == LanguageModelState.failed);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
@@ -305,15 +307,27 @@ class _ModelStatusTileState extends ConsumerState<_ModelStatusTile> {
           for (final code in widget.codes)
             Padding(
               padding: const EdgeInsets.only(bottom: 2),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _icon(models[code] ?? LanguageModelState.unknown, scheme),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${translationLanguageLabel(code)} · '
-                    '${_label(models[code] ?? LanguageModelState.unknown)}',
-                    style: TextStyle(fontSize: 12.5, color: scheme.outline),
+                  Row(
+                    children: [
+                      _icon(st(code), scheme),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${translationLanguageLabel(code)} · ${_label(st(code))}',
+                        style: TextStyle(fontSize: 12.5, color: scheme.outline),
+                      ),
+                    ],
                   ),
+                  // 失敗原因直接顯示,才能判斷是網路、權限還是 ML Kit 本身的問題。
+                  if (models[code]?.error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 20, top: 2),
+                      child: Text(models[code]!.error!,
+                          style:
+                              TextStyle(fontSize: 11.5, color: scheme.error)),
+                    ),
                 ],
               ),
             ),
