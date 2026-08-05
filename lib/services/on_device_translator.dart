@@ -1,5 +1,7 @@
 import 'package:google_mlkit_translation/google_mlkit_translation.dart';
 
+import 'chinese_convert.dart';
+
 /// 可選的翻譯語言(ML Kit 裝置內翻譯 ∩ server 留檔翻譯常用語言)。
 ///
 /// 來源與目標都從此清單選,因此含中文 —— 中→英、**英→中**、中→日 皆可。
@@ -33,6 +35,9 @@ class OnDeviceTranslatorService {
   final OnDeviceTranslatorModelManager _models =
       OnDeviceTranslatorModelManager();
 
+  /// 目標是中文時需把 ML Kit 的簡體輸出轉成繁體(台灣)。
+  bool _toTraditional = false;
+
   /// 目前是否已可翻譯。
   bool get isReady => _translator != null;
 
@@ -65,6 +70,10 @@ class OnDeviceTranslatorService {
           if (!ok) return false;
         }
       }
+      // ML Kit 的中文只有簡體;目標是中文就要再轉繁體(台灣)。
+      _toTraditional = target == TranslateLanguage.chinese;
+      if (_toTraditional) await ChineseConvert.ensureLoaded();
+
       _translator = OnDeviceTranslator(
         sourceLanguage: source,
         targetLanguage: target,
@@ -86,8 +95,11 @@ class OnDeviceTranslatorService {
     if (src.isEmpty) return null;
     try {
       final out = await t.translateText(src);
-      final result = out.trim();
-      return result.isEmpty ? null : result;
+      var result = out.trim();
+      if (result.isEmpty) return null;
+      // ML Kit 只輸出簡體中文,轉成繁體(台灣正體 + 用語)。
+      if (_toTraditional) result = ChineseConvert.s2twp(result);
+      return result;
     } catch (_) {
       return null;
     }
@@ -100,6 +112,7 @@ class OnDeviceTranslatorService {
     _translator = null;
     _readySource = null;
     _readyTarget = null;
+    _toTraditional = false;
     if (t != null) {
       try {
         await t.close();
