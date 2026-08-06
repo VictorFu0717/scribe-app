@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/transcript_segment.dart';
 import '../services/on_device_translator.dart';
+import 'service_providers.dart';
 import 'settings_controller.dart';
 
 /// 已完成會議的逐字稿裝置內翻譯結果:片段 id → 譯文。
@@ -37,14 +38,26 @@ class TranscriptTranslationController
     if (_running) return;
     _running = true;
     try {
-      final langs =
-          '${settings.translationSource}>${settings.translationTarget}';
+      // 方向以「這場會議錄音當下」為準,而不是目前的全域設定 —— 全域設定可能已經
+      // 改成別的方向,但這場逐字稿的語言是固定的。沒有記錄的會議(匯入的音檔、
+      // 舊資料)則依逐字稿內容判斷,避免語言不符而翻出垃圾。
+      final recorded = ref
+          .read(meetingTranslationDirectionStoreProvider)
+          .directionFor(arg);
+      final dir = recorded != null
+          ? (source: recorded.source, target: recorded.target)
+          : resolveDirection(
+              sampleText: segments.map((s) => s.text).take(20).join(' '),
+              source: settings.translationSource,
+              target: settings.translationTarget,
+            );
+
+      final langs = '${dir.source}>${dir.target}';
       if (_langs != langs) {
         // 語言方向改了:清掉舊譯文重譯。
         _translatedSource.clear();
         state = const {};
-        final ok = await _translator.prepare(
-            settings.translationSource, settings.translationTarget);
+        final ok = await _translator.prepare(dir.source, dir.target);
         if (!ok) return;
         _langs = langs;
       }

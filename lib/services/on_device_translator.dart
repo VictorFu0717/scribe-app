@@ -22,6 +22,45 @@ const translationLanguages = <String, String>{
 String translationLanguageLabel(String code) =>
     translationLanguages[code] ?? code;
 
+/// 粗略判斷一段文字是否以中文為主(CJK 漢字多於拉丁字母)。
+///
+/// 用於「沒有記錄翻譯方向」的會議(匯入的音檔、舊資料):若逐字稿語言與設定的
+/// 來源語言不符,直接照設定翻會得到垃圾結果(例如把英文當中文翻成英文)。
+bool looksChinese(String text) {
+  var cjk = 0;
+  var latin = 0;
+  for (final r in text.runes) {
+    if (r >= 0x4E00 && r <= 0x9FFF) {
+      cjk++;
+    } else if ((r >= 0x41 && r <= 0x5A) || (r >= 0x61 && r <= 0x7A)) {
+      latin++;
+    }
+  }
+  return cjk > latin;
+}
+
+/// 依逐字稿內容決定實際該用的翻譯方向。
+///
+/// 規則:只在「設定的其中一邊是中文」時才可能修正 —— 若逐字稿明顯是中文卻被設成
+/// 目標語言(或反之),就把方向反過來。其他語言組合無從判斷,維持使用者設定。
+({String source, String target}) resolveDirection({
+  required String sampleText,
+  required String source,
+  required String target,
+}) {
+  if (sampleText.trim().isEmpty) return (source: source, target: target);
+  final isChinese = looksChinese(sampleText);
+  // 逐字稿是中文,但設定成「翻譯目標是中文」→ 方向反了。
+  if (isChinese && target == 'zh' && source != 'zh') {
+    return (source: target, target: source);
+  }
+  // 逐字稿不是中文,但設定成「來源是中文」→ 方向反了。
+  if (!isChinese && source == 'zh' && target != 'zh') {
+    return (source: target, target: source);
+  }
+  return (source: source, target: target);
+}
+
 /// 裝置內即時翻譯:錄音時把每句**定稿**逐字稿翻成目標語言,做雙語字幕。
 ///
 /// 用裝置內翻譯(而非呼叫 server)的原因:零延遲、離線可用、不增加 server 負載。
