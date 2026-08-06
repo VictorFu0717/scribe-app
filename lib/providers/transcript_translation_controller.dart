@@ -2,8 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/transcript_segment.dart';
 import '../services/on_device_translator.dart';
-import 'service_providers.dart';
-import 'settings_controller.dart';
+import 'meeting_translation_controller.dart';
 
 /// 已完成會議的逐字稿裝置內翻譯結果:片段 id → 譯文。
 ///
@@ -33,31 +32,18 @@ class TranscriptTranslationController
 
   /// 補上尚未翻譯的片段。可在每次 build 後安全重複呼叫(內部去重、單線進行)。
   Future<void> ensureTranslated(List<TranscriptSegment> segments) async {
-    final settings = ref.read(settingsProvider);
-    if (!settings.translationEnabled || segments.isEmpty) return;
+    // 翻譯與否、用什麼語言,都由**這場會議自己的設定**決定(預設不翻)。
+    final pref = ref.read(meetingTranslationProvider(arg));
+    if (!pref.enabled || segments.isEmpty) return;
     if (_running) return;
     _running = true;
     try {
-      // 方向以「這場會議錄音當下」為準,而不是目前的全域設定 —— 全域設定可能已經
-      // 改成別的方向,但這場逐字稿的語言是固定的。沒有記錄的會議(匯入的音檔、
-      // 舊資料)則依逐字稿內容判斷,避免語言不符而翻出垃圾。
-      final recorded = ref
-          .read(meetingTranslationDirectionStoreProvider)
-          .directionFor(arg);
-      final dir = recorded != null
-          ? (source: recorded.source, target: recorded.target)
-          : resolveDirection(
-              sampleText: segments.map((s) => s.text).take(20).join(' '),
-              source: settings.translationSource,
-              target: settings.translationTarget,
-            );
-
-      final langs = '${dir.source}>${dir.target}';
+      final langs = '${pref.source}>${pref.target}';
       if (_langs != langs) {
         // 語言方向改了:清掉舊譯文重譯。
         _translatedSource.clear();
         state = const {};
-        final ok = await _translator.prepare(dir.source, dir.target);
+        final ok = await _translator.prepare(pref.source, pref.target);
         if (!ok) return;
         _langs = langs;
       }

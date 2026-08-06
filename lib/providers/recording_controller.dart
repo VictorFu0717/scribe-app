@@ -261,17 +261,19 @@ class RecordingController extends Notifier<RecordingState> {
       await ref.read(localRecordingStoreProvider).save(meetingId, wavPath);
     }
 
-    // 記住這場會議的翻譯方向:全域設定之後可能改成別的方向,但這場的逐字稿語言
-    // 已經固定。不記的話,日後用當下設定重翻會語言不符(例如英文會議套上
-    // 「中文→英文」,ML Kit 會原樣吐回英文)。
+    // 記住這場會議的翻譯設定(是否翻譯 + 方向)。全域設定之後可能改成別的方向,
+    // 但這場的逐字稿語言已經固定;不記的話,日後重看會用當下設定去翻而語言不符
+    // (例如英文會議套上「中文→英文」,ML Kit 會原樣吐回英文)。
     if (meetingId != null) {
       final s = ref.read(settingsProvider);
-      if (s.translationEnabled) {
-        await ref.read(meetingTranslationDirectionStoreProvider).save(
-              meetingId,
-              TranslationDirection(s.translationSource, s.translationTarget),
-            );
-      }
+      await ref.read(meetingTranslationStoreProvider).save(
+            meetingId,
+            MeetingTranslationPref(
+              enabled: s.translationEnabled,
+              source: s.translationSource,
+              target: s.translationTarget,
+            ),
+          );
     }
 
     ref.invalidate(meetingsListProvider);

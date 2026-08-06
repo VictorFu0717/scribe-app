@@ -11,8 +11,10 @@ import '../../models/meeting.dart';
 import '../../models/transcript_segment.dart';
 import '../../providers/meetings_controller.dart';
 import '../../providers/service_providers.dart';
-import '../../providers/settings_controller.dart';
+import '../../providers/meeting_translation_controller.dart';
 import '../../providers/transcript_translation_controller.dart';
+import '../../services/on_device_translator.dart';
+import '../../widgets/language_picker.dart';
 import '../../services/export_service.dart';
 import '../../widgets/audio_player_bar.dart';
 import '../../widgets/export_button.dart';
@@ -193,9 +195,9 @@ class _TranscriptTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final transcript = ref.watch(transcriptProvider(meeting.id));
-    final translationOn = ref.watch(settingsProvider).translationEnabled;
-    // 裝置內翻譯的譯文(未開翻譯時為空);逐段補上,故會隨翻譯進度更新。
-    final translations = translationOn
+    // 翻譯是**這場會議自己的**設定(預設關閉),不再由全域開關決定。
+    final pref = ref.watch(meetingTranslationProvider(meeting.id));
+    final translations = pref.enabled
         ? ref.watch(transcriptTranslationProvider(meeting.id))
         : const <String, String>{};
 
@@ -216,8 +218,8 @@ class _TranscriptTab extends ConsumerWidget {
           );
         }
 
-        // 逐字稿載入後在背景補譯文(內部去重,重複呼叫安全)。
-        if (translationOn && segments.isNotEmpty) {
+        // 這場會議有開翻譯才在背景補譯文(內部去重,重複呼叫安全)。
+        if (pref.enabled && segments.isNotEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             ref
                 .read(transcriptTranslationProvider(meeting.id).notifier)
@@ -236,14 +238,20 @@ class _TranscriptTab extends ConsumerWidget {
         if (segments.isEmpty) return view;
         return Column(
           children: [
-            Align(
-              alignment: Alignment.centerRight,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                child: ExportButton(
-                  label: '匯出逐字稿 .txt',
-                  onExport: (origin) => _export(context, segments, origin),
-                ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Row(
+                children: [
+                  // 每場會議自己的翻譯開關與語言(預設關閉)。
+                  Expanded(
+                      child: _MeetingTranslationControls(
+                          meetingId: meeting.id, pref: pref)),
+                  const SizedBox(width: 8),
+                  ExportButton(
+                    label: '匯出逐字稿 .txt',
+                    onExport: (origin) => _export(context, segments, origin),
+                  ),
+                ],
               ),
             ),
             Expanded(child: view),
@@ -339,6 +347,59 @@ class _TranscribingPlaceholder extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 單一會議的翻譯控制:開關 + 語言方向。
+///
+/// 刻意做成「每場會議」而非全域:多數會議不需要翻譯,而各場語言也不同 ——
+/// 用一個全域方向去翻所有會議,語言不符時會翻出垃圾(英文會議套「中→英」會原樣吐回)。
+class _MeetingTranslationControls extends ConsumerWidget {
+  const _MeetingTranslationControls({
+    required this.meetingId,
+    required this.pref,
+  });
+  final String meetingId;
+  final MeetingTranslationPref pref;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(meetingTranslationProvider(meetingId).notifier);
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        FilterChip(
+          label: const Text('翻譯'),
+          avatar: const Icon(Icons.translate_rounded, size: 18),
+          selected: pref.enabled,
+          onSelected: notifier.setEnabled,
+          visualDensity: VisualDensity.compact,
+        ),
+        if (pref.enabled)
+          ActionChip(
+            avatar: const Icon(Icons.swap_horiz_rounded, size: 18),
+            label: Text('${translationLanguageLabel(pref.source)}'
+                ' → ${translationLanguageLabel(pref.target)}'),
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _pickLanguages(context, notifier),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _pickLanguages(
+      BuildContext context, MeetingTranslationController notifier) async {
+    final source = await showLanguagePicker(context,
+        title: '這場會議的語言', current: pref.source);
+    if (source == null || !context.mounted) return;
+    await notifier.setLanguages(source: source);
+    if (!context.mounted) return;
+    final target = await showLanguagePicker(context,
+        title: '翻譯成', current: pref.target == source ? pref.source : pref.target);
+    if (target == null) return;
+    await notifier.setLanguages(target: target);
   }
 }
 

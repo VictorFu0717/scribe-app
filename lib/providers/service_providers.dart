@@ -67,45 +67,59 @@ class LocalRecordingStore {
       _prefs.setString(_key(meetingId), path);
 }
 
-/// 每場會議「錄音當下」的翻譯方向。
-final meetingTranslationDirectionStoreProvider =
-    Provider<MeetingTranslationDirectionStore>(
-        (ref) => MeetingTranslationDirectionStore(
-              ref.read(sharedPreferencesProvider),
-            ));
+/// 每場會議各自的翻譯設定。
+final meetingTranslationStoreProvider = Provider<MeetingTranslationStore>(
+    (ref) => MeetingTranslationStore(ref.read(sharedPreferencesProvider)));
 
-/// 一場會議的翻譯方向(來源語言 → 目標語言)。
-class TranslationDirection {
-  const TranslationDirection(this.source, this.target);
+/// 一場會議的翻譯設定:是否翻譯,以及來源 → 目標語言。
+class MeetingTranslationPref {
+  const MeetingTranslationPref({
+    required this.enabled,
+    required this.source,
+    required this.target,
+  });
+
+  final bool enabled;
   final String source;
   final String target;
 
-  TranslationDirection get reversed => TranslationDirection(target, source);
-
-  @override
-  String toString() => '$source>$target';
+  MeetingTranslationPref copyWith({
+    bool? enabled,
+    String? source,
+    String? target,
+  }) =>
+      MeetingTranslationPref(
+        enabled: enabled ?? this.enabled,
+        source: source ?? this.source,
+        target: target ?? this.target,
+      );
 }
 
-/// 記錄每場會議該用的翻譯方向。
+/// 記錄每場會議自己的翻譯設定(以 meetingId 為 key)。
 ///
-/// 為什麼需要:翻譯方向是**全域設定**,但每場會議的語言不同 —— 有的中文會議、
-/// 有的英文會議。若一律用當下的全域設定去翻,英文會議套上「中文→英文」時,
-/// ML Kit 會把英文當中文處理而原樣吐回,看起來就是「英文翻英文」;
-/// 中文會議套上「英文→中文」則譯文變中文。故改為記住錄音當下的方向。
-class MeetingTranslationDirectionStore {
-  MeetingTranslationDirectionStore(this._prefs);
+/// 為什麼是「每場」而非全域:多數會議不需要翻譯,只有少數要;而且各場語言不同 ——
+/// 拿當下的全域方向去翻所有會議,英文會議套上「中文→英文」時 ML Kit 會把英文
+/// 當中文而原樣吐回(看起來像「英文翻英文」)。全域設定僅作為新錄音的預設值。
+class MeetingTranslationStore {
+  MeetingTranslationStore(this._prefs);
   final SharedPreferences _prefs;
 
-  String _key(String meetingId) => 'translation_dir.$meetingId';
+  String _key(String meetingId) => 'meeting_translation.$meetingId';
 
-  TranslationDirection? directionFor(String meetingId) {
+  /// 尚未設定過的會議回 null(呼叫端據此套用預設:不翻譯)。
+  MeetingTranslationPref? prefFor(String meetingId) {
     final raw = _prefs.getString(_key(meetingId));
     if (raw == null) return null;
-    final parts = raw.split('>');
-    if (parts.length != 2 || parts[0].isEmpty || parts[1].isEmpty) return null;
-    return TranslationDirection(parts[0], parts[1]);
+    final parts = raw.split('|'); // 格式:enabled|source|target
+    if (parts.length != 3 || parts[1].isEmpty || parts[2].isEmpty) return null;
+    return MeetingTranslationPref(
+      enabled: parts[0] == '1',
+      source: parts[1],
+      target: parts[2],
+    );
   }
 
-  Future<void> save(String meetingId, TranslationDirection dir) =>
-      _prefs.setString(_key(meetingId), '${dir.source}>${dir.target}');
+  Future<void> save(String meetingId, MeetingTranslationPref pref) =>
+      _prefs.setString(_key(meetingId),
+          '${pref.enabled ? 1 : 0}|${pref.source}|${pref.target}');
 }

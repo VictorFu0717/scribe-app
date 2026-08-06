@@ -117,10 +117,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           const Divider(),
           // ── 翻譯 ──
-          _header('翻譯'),
+          _header('翻譯(新錄音的預設)'),
           SwitchListTile(
-            title: const Text('開啟翻譯'),
-            subtitle: const Text('錄音時與會議逐字稿都顯示雙語(在手機上離線翻譯)'),
+            title: const Text('錄音時開啟翻譯'),
+            subtitle: const Text('錄音中顯示雙語字幕。每場會議可在該會議的逐字稿頁個別開關'),
             value: settings.translationEnabled,
             onChanged: (v) async {
               await notifier.setTranslationEnabled(v);
@@ -137,7 +137,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             // 來源/目標各自一列(直觀),右側「⇄」一鍵反轉方向。
             ListTile(
               leading: const Icon(Icons.record_voice_over_outlined),
-              title: const Text('說話的語言'),
+              title: const Text('預設:說話的語言'),
               subtitle:
                   Text(translationLanguageLabel(settings.translationSource)),
               trailing: const Icon(Icons.chevron_right),
@@ -154,7 +154,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.translate_rounded),
-              title: const Text('翻譯成'),
+              title: const Text('預設:翻譯成'),
               subtitle:
                   Text(translationLanguageLabel(settings.translationTarget)),
               trailing: const Icon(Icons.chevron_right),
@@ -195,8 +195,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             _ModelStatusTile(
                 codes: [settings.translationSource, settings.translationTarget]),
-            _note('翻譯在手機上離線進行(零延遲、不佔用 server)。'
-                '每個語言的模型約 30MB,下載後永久離線可用;App 啟動時會自動先備妥中文與英文。'),
+            _note('這裡設定的是**新錄音**的預設值;既有會議請到該會議的逐字稿頁開啟翻譯,'
+                '各場會議互不影響。翻譯在手機上離線進行,每個語言模型約 30MB,'
+                'App 啟動時會自動先備妥中文與英文。'),
           ],
 
           const Divider(),

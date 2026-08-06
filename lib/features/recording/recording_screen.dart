@@ -11,7 +11,9 @@ import '../../widgets/level_meter.dart';
 import '../../widgets/recording_orb.dart';
 import '../../widgets/speaker_count_picker.dart';
 import '../../widgets/soft_card.dart';
+import '../../providers/translation_models_controller.dart';
 import '../../services/on_device_translator.dart';
+import '../../widgets/language_picker.dart';
 import '../../widgets/transcript_view.dart';
 
 class RecordingScreen extends ConsumerStatefulWidget {
@@ -332,8 +334,48 @@ class _ModeChips extends ConsumerWidget {
                 : '人數:${settings.speakerCount}'),
             onPressed: () => _pickSpeakerCount(context, ref, settings),
           ),
+        FilterChip(
+          label: const Text('翻譯'),
+          avatar: const Icon(Icons.translate_rounded, size: 18),
+          selected: settings.translationEnabled,
+          onSelected: (v) async {
+            await ref.read(settingsProvider.notifier).setTranslationEnabled(v);
+            if (v) {
+              // 先把模型備妥,避免開始錄音後前幾句還在下載而沒有譯文。
+              ref.read(translationModelsProvider.notifier).ensureDownloaded(
+                  [settings.translationSource, settings.translationTarget]);
+            }
+          },
+        ),
+        if (settings.translationEnabled)
+          ActionChip(
+            avatar: const Icon(Icons.swap_horiz_rounded, size: 18),
+            label: Text('${translationLanguageLabel(settings.translationSource)}'
+                ' → ${translationLanguageLabel(settings.translationTarget)}'),
+            onPressed: () => _pickTranslationLanguages(context, ref, settings),
+          ),
       ],
     );
+  }
+
+  /// 錄音前調整翻譯方向(先選來源、再選目標;選到相同會自動交換)。
+  Future<void> _pickTranslationLanguages(
+      BuildContext context, WidgetRef ref, Settings settings) async {
+    final notifier = ref.read(settingsProvider.notifier);
+    final source = await showLanguagePicker(context,
+        title: '說話的語言', current: settings.translationSource);
+    if (source == null || !context.mounted) return;
+    await notifier.setTranslationLanguages(source: source);
+    if (!context.mounted) return;
+    final target = await showLanguagePicker(context,
+        title: '翻譯成',
+        current: ref.read(settingsProvider).translationTarget);
+    if (target == null) return;
+    await notifier.setTranslationLanguages(target: target);
+    final s = ref.read(settingsProvider);
+    await ref
+        .read(translationModelsProvider.notifier)
+        .ensureDownloaded([s.translationSource, s.translationTarget]);
   }
 
   Future<void> _pickSpeakerCount(
