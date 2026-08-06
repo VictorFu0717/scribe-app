@@ -29,6 +29,32 @@ void main() {
     expect(txt, isNot(contains('說話者 2'))); // 空內容那句被略過
   });
 
+  test('buildTranscriptText:有開翻譯時,譯文寫在原文下一行並縮排', () {
+    final txt = ExportService.buildTranscriptText(
+      meeting,
+      const [
+        TranscriptSegment(
+            id: 's0', text: '先確認里程碑。', isFinal: true, speaker: '說話者 1'),
+        TranscriptSegment(id: 's1', text: '沒有譯文的一句。', isFinal: true),
+      ],
+      translations: const {'s0': 'Let us confirm the milestones first.'},
+      translationNote: '中文 → 英文',
+    );
+    expect(txt, contains('翻譯:中文 → 英文'));
+    expect(txt, contains('    Let us confirm the milestones first.'));
+    // 原文仍在,且沒有譯文的句子不會被加上空行縮排。
+    expect(txt, contains('先確認里程碑。'));
+    expect(txt, contains('沒有譯文的一句。'));
+    expect(txt, isNot(contains('    \n')));
+  });
+
+  test('buildTranscriptText:未提供譯文時輸出與先前一致(不含翻譯標頭)', () {
+    final txt = ExportService.buildTranscriptText(meeting, const [
+      TranscriptSegment(id: 's0', text: '先確認里程碑。', isFinal: true),
+    ]);
+    expect(txt, isNot(contains('翻譯:')));
+  });
+
   test('buildSummaryText:各區塊 + 待辦帶負責人/期限,空區塊省略', () {
     final txt = ExportService.buildSummaryText(
       meeting,

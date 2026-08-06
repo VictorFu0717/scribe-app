@@ -249,7 +249,8 @@ class _TranscriptTab extends ConsumerWidget {
                   const SizedBox(width: 8),
                   ExportButton(
                     label: '匯出逐字稿 .txt',
-                    onExport: (origin) => _export(context, segments, origin),
+                    onExport: (origin) => _export(context, segments, origin,
+                        translations: translations, pref: pref),
                   ),
                 ],
               ),
@@ -261,11 +262,25 @@ class _TranscriptTab extends ConsumerWidget {
     );
   }
 
+  /// 匯出時一併帶上目前顯示的譯文,讓 .txt 與畫面上看到的雙語一致。
   Future<void> _export(
-      BuildContext context, List<TranscriptSegment> segments, Rect? origin) async {
+    BuildContext context,
+    List<TranscriptSegment> segments,
+    Rect? origin, {
+    required Map<String, String> translations,
+    required MeetingTranslationPref pref,
+  }) async {
     try {
-      await ExportService.exportTranscript(meeting, segments,
-          shareOrigin: origin);
+      await ExportService.exportTranscript(
+        meeting,
+        segments,
+        shareOrigin: origin,
+        translations: pref.enabled ? translations : const {},
+        translationNote: pref.enabled && translations.isNotEmpty
+            ? '${translationLanguageLabel(pref.source)}'
+                ' → ${translationLanguageLabel(pref.target)}'
+            : null,
+      );
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)

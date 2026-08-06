@@ -14,14 +14,21 @@ import '../models/transcript_segment.dart';
 class ExportService {
   ExportService._();
 
+  /// 匯出逐字稿。若該場會議開了翻譯,譯文會一併寫入(每句原文下方縮排一行)。
   static Future<void> exportTranscript(
     Meeting meeting,
     List<TranscriptSegment> segments, {
     Rect? shareOrigin,
+    Map<String, String> translations = const {},
+    String? translationNote,
   }) {
     final name = '${_sanitize(meeting.title)}_逐字稿_${_stamp(meeting.createdAt)}';
-    return _saveAndShare(name, buildTranscriptText(meeting, segments),
-        shareOrigin);
+    return _saveAndShare(
+      name,
+      buildTranscriptText(meeting, segments,
+          translations: translations, translationNote: translationNote),
+      shareOrigin,
+    );
   }
 
   static Future<void> exportSummary(
@@ -53,16 +60,32 @@ class ExportService {
   }
 
   // ── 內容組裝 ──
-  static String buildTranscriptText(Meeting m, List<TranscriptSegment> segs) {
+  /// 組出逐字稿純文字。
+  ///
+  /// [translations] 為片段 id → 譯文;有值時寫在該句原文下一行並縮排,
+  /// 讓匯出的內容與 App 內看到的雙語一致。[translationNote] 標示翻譯方向。
+  static String buildTranscriptText(
+    Meeting m,
+    List<TranscriptSegment> segs, {
+    Map<String, String> translations = const {},
+    String? translationNote,
+  }) {
     final b = StringBuffer()
       ..writeln('會議逐字稿')
       ..writeln(m.title)
-      ..writeln(Formatters.dateTime(m.createdAt))
-      ..writeln();
+      ..writeln(Formatters.dateTime(m.createdAt));
+    if (translationNote != null && translationNote.isNotEmpty) {
+      b.writeln('翻譯:$translationNote');
+    }
+    b.writeln();
     for (final s in segs) {
       final t = s.text.trim();
       if (t.isEmpty) continue;
       b.writeln(s.speaker != null ? '${s.speaker}：$t' : t);
+      final translated = translations[s.id]?.trim();
+      if (translated != null && translated.isNotEmpty) {
+        b.writeln('    $translated');
+      }
     }
     return b.toString();
   }
