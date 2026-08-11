@@ -18,17 +18,31 @@ import UIKit
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  /// 使用者從語音備忘錄等 App 分享音檔過來時觸發(冷啟動與已在執行中都會走這裡)。
+  /// 非 UIScene 情境的接收路徑(保留作為後備)。
+  ///
+  /// 注意:本 App 走 UIScene 生命週期,分享進來的 URL **不會**經過這裡,
+  /// 而是由 SceneDelegate 的 scene(_:openURLContexts:) 與 willConnectTo 收到 ——
+  /// 先前只實作這個方法,導致在分享清單點了「會議助理」卻毫無反應。
   override func application(
     _ app: UIApplication,
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
-    if let copied = copyToCache(url) {
-      pendingIncomingFile = copied
-      return true
-    }
+    if receiveIncomingFile(url) { return true }
     return super.application(app, open: url, options: options)
+  }
+
+  /// 收下分享進來的音檔(複製到快取後暫存路徑)。回傳是否成功接手。
+  /// 由 SceneDelegate 於 UIScene 生命週期下呼叫。
+  @discardableResult
+  func receiveIncomingFile(_ url: URL) -> Bool {
+    guard let copied = copyToCache(url) else { return false }
+    pendingIncomingFile = copied
+    // 主動通知 Dart(僅作為觸發訊號,實際路徑仍由 Dart 呼叫 take 取走,
+    // 避免重複匯入)。冷啟動時 channel 尚未建立,此呼叫會被忽略,
+    // 那種情況由 Dart 啟動後主動來取。
+    incomingFileChannel?.invokeMethod("onIncomingFile", arguments: nil)
+    return true
   }
 
   /// 把來源檔複製到 App 快取。

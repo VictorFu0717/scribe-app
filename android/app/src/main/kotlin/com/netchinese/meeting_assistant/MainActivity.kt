@@ -15,6 +15,9 @@ class MainActivity : FlutterActivity() {
     /// (見 lib/services/incoming_file.dart)。
     private var pendingIncomingFile: String? = null
 
+    /// 保留 channel 以便收到檔案時主動通知 Dart(僅作觸發訊號)。
+    private var incomingFileChannel: MethodChannel? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
@@ -35,9 +38,9 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        // 分享進來的音檔:Dart 端於啟動與回到前景時來取。
-        MethodChannel(messenger, "app/incoming_file")
-            .setMethodCallHandler { call, result ->
+        // 分享進來的音檔:Dart 端於啟動、回到前景,或收到下方通知時來取。
+        incomingFileChannel = MethodChannel(messenger, "app/incoming_file").apply {
+            setMethodCallHandler { call, result ->
                 if (call.method == "take") {
                     result.success(pendingIncomingFile)
                     pendingIncomingFile = null // 取走即清空,避免重複匯入同一檔
@@ -45,6 +48,7 @@ class MainActivity : FlutterActivity() {
                     result.notImplemented()
                 }
             }
+        }
 
         // 冷啟動:啟動本 Activity 的 intent 可能就帶著分享的檔案。
         handleIncomingIntent(intent)
@@ -65,7 +69,12 @@ class MainActivity : FlutterActivity() {
             else -> null
         }
         if (uri != null) {
-            copyToCache(uri)?.let { pendingIncomingFile = it }
+            copyToCache(uri)?.let {
+                pendingIncomingFile = it
+                // 主動通知 Dart(僅作觸發訊號,路徑仍由 take 取走以免重複匯入)。
+                // 冷啟動時 channel 尚未建立,那種情況由 Dart 啟動後主動來取。
+                incomingFileChannel?.invokeMethod("onIncomingFile", null)
+            }
         }
     }
 

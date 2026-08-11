@@ -28,6 +28,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // 原生端收到分享時會主動通知(App 已開著的情況即時反應)。
+    IncomingFile.onIncoming(_checkIncomingFile);
     // 由分享動作冷啟動 App 時,檔案已在原生端等著。
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkIncomingFile());
   }

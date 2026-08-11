@@ -16,6 +16,17 @@ class IncomingFile {
 
   static const MethodChannel _channel = MethodChannel('app/incoming_file');
 
+  /// 註冊「有新檔案進來」的通知。
+  ///
+  /// 原生端收到分享時會主動呼叫,作為即時觸發訊號;實際路徑仍要用 [take] 取,
+  /// 這樣不論走通知或輪詢都只會匯入一次。
+  static void onIncoming(void Function() callback) {
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onIncomingFile') callback();
+      return null;
+    });
+  }
+
   /// 取走待處理的分享檔案路徑(取走後原生端會清空);沒有則回 null。
   ///
   /// App 冷啟動(由分享動作喚起)與從背景返回時都要呼叫 —— 兩種情況原生端的
