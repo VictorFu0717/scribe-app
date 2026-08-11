@@ -8,7 +8,7 @@ import '../../core/theme/app_style.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/meeting.dart';
 import '../../providers/meetings_controller.dart';
-import '../../providers/service_providers.dart';
+import '../../services/audio_import.dart';
 import '../../routing/app_router.dart';
 import '../../widgets/brand_wave.dart';
 import '../../widgets/soft_card.dart';
@@ -99,10 +99,6 @@ class MeetingsListScreen extends ConsumerWidget {
     if (picked == null) return; // 使用者取消
     final path = picked.path;
 
-    final rawName = picked.name;
-    final dot = rawName.lastIndexOf('.');
-    final title = dot > 0 ? rawName.substring(0, dot) : rawName;
-
     if (context.mounted) {
       showDialog(
         context: context,
@@ -111,14 +107,11 @@ class MeetingsListScreen extends ConsumerWidget {
       );
     }
     try {
-      final backend = ref.read(backendProvider);
-      final config = ref.read(transcriptionConfigProvider);
-      final meeting = await backend.createMeeting(title: title);
-      await backend.uploadAudio(meeting.id, path, config: config);
-      ref.invalidate(meetingsListProvider);
+      // 與「從其他 App 分享進來的音檔」共用同一套匯入流程。
+      final meetingId = await importAudioFile(ref, path);
       if (context.mounted) {
         Navigator.of(context).pop(); // 關閉上傳中對話框
-        context.push(Routes.meeting(meeting.id));
+        context.push(Routes.meeting(meetingId));
       }
     } catch (e) {
       if (context.mounted) {

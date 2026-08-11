@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../core/network/api_exception.dart';
+import '../../routing/app_router.dart';
+import '../../services/audio_import.dart';
+import '../../services/incoming_file.dart';
 import '../assistant/assistant_screen.dart';
 import '../meetings/meetings_list_screen.dart';
 import '../settings/settings_screen.dart';
@@ -14,8 +19,60 @@ class HomeShell extends ConsumerStatefulWidget {
   ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends ConsumerState<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell>
+    with WidgetsBindingObserver {
   int _index = 0;
+  bool _importing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // 由分享動作冷啟動 App 時,檔案已在原生端等著。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkIncomingFile());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // App 已在執行時被分享喚起:回到前景才拿得到。
+    if (state == AppLifecycleState.resumed) _checkIncomingFile();
+  }
+
+  /// 取走並匯入從其他 App 分享進來的音檔(例如 iPhone 語音備忘錄)。
+  Future<void> _checkIncomingFile() async {
+    if (_importing) return;
+    final path = await IncomingFile.take();
+    if (path == null || !mounted) return;
+
+    _importing = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const _ImportingDialog(),
+    );
+    try {
+      final meetingId = await importAudioFile(ref, path);
+      if (!mounted) return;
+      Navigator.of(context).pop(); // 關閉「處理中」
+      context.push(Routes.meeting(meetingId));
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text(e is ApiException ? e.message : '匯入分享的音檔失敗:$e'),
+        ));
+      }
+    } finally {
+      _importing = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +105,27 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             selectedIcon: Icon(Icons.settings),
             label: '設定',
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 分享進來的音檔上傳中(與清單頁的上傳提示一致)。
+class _ImportingDialog extends StatelessWidget {
+  const _ImportingDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return const AlertDialog(
+      content: Row(
+        children: [
+          SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 3)),
+          SizedBox(width: 16),
+          Expanded(child: Text('正在匯入分享的音檔…')),
         ],
       ),
     );
