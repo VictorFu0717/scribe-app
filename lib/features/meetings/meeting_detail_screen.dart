@@ -159,6 +159,7 @@ class _Body extends ConsumerWidget {
                   child: FutureBuilder<Map<String, String>>(
                     future: backend.authHeaders(),
                     builder: (context, snap) => AudioPlayerBar(
+                      meetingId: meeting.id,
                       localPath: localPath,
                       remoteUri: remoteUri,
                       headers: snap.data,
@@ -172,6 +173,23 @@ class _Body extends ConsumerWidget {
                     _SaveAudioButton(meeting: meeting, audioPath: localPath),
                   _ShareAudioButton(meeting: meeting, audioPath: localPath),
                 ],
+              ],
+            ),
+          ),
+        if (localPath == null && remoteUri == null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Row(
+              children: [
+                Icon(Icons.music_off_outlined,
+                    size: 14, color: Theme.of(context).colorScheme.outline),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text('這場會議沒有可播放的錄音(上傳的音檔僅用於轉錄,未留存)',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.outline)),
+                ),
               ],
             ),
           ),
@@ -200,6 +218,10 @@ class _TranscriptTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final transcript = ref.watch(transcriptProvider(meeting.id));
+    // 有錄音可播,時間戳才做成可點(否則顯示為灰色不可點,避免點了沒反應)。
+    final localPath = ref.read(localRecordingStoreProvider).pathFor(meeting.id);
+    final hasAudio = (localPath != null && File(localPath).existsSync()) ||
+        meeting.remoteAudioUrl != null;
     // 翻譯是**這場會議自己的**設定(預設關閉),不再由全域開關決定。
     final pref = ref.watch(meetingTranslationProvider(meeting.id));
     final translations = pref.enabled
@@ -239,12 +261,19 @@ class _TranscriptTab extends ConsumerWidget {
             emptyHint: '這場會議還沒有逐字稿',
             translations: translations,
             // 點時間戳跳到錄音的該位置並播放 —— 辨識有誤時可直接回去對照原音。
-            // 播放器是 App 層級共用的,進入本頁時 AudioPlayerBar 已載入音源。
-            onSeek: (position) async {
-              final player = ref.read(audioPlayerProvider);
-              await player.seek(position);
-              await player.play();
-            },
+            //
+            // 只在「這場會議的音源確實已載入」時才可點:播放器是 App 層級共用的
+            // singleton,若這場沒有錄音檔(例如上傳的音檔 server 未留存),裡面還留著
+            // 上一場的音源,無條件 seek 會播出**別場**會議的錄音(實測發生過)。
+            onSeek: !hasAudio
+                ? null
+                : (position) async {
+                    final player = ref.read(audioPlayerProvider);
+                    // 再確認一次載入的是本場 —— 音源載入是非同步的。
+                    if (player.loadedMeetingId != meeting.id) return;
+                    await player.seek(position);
+                    await player.play();
+                  },
           ),
         );
         if (segments.isEmpty) return view;
