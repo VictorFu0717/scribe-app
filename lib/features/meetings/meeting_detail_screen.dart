@@ -185,7 +185,7 @@ class _Body extends ConsumerWidget {
                     size: 14, color: Theme.of(context).colorScheme.outline),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: Text('這場會議沒有可播放的錄音(上傳的音檔僅用於轉錄,未留存)',
+                  child: Text('這場會議在本機沒有錄音檔可播放',
                       style: TextStyle(
                           fontSize: 12,
                           color: Theme.of(context).colorScheme.outline)),
