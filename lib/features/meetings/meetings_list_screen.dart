@@ -1,4 +1,3 @@
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +7,7 @@ import '../../core/theme/app_style.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/meeting.dart';
 import '../../providers/meetings_controller.dart';
+import '../../services/audio_file_picker.dart';
 import '../../services/audio_import.dart';
 import '../../routing/app_router.dart';
 import '../../widgets/brand_wave.dart';
@@ -77,27 +77,16 @@ class MeetingsListScreen extends ConsumerWidget {
 
   /// 匯入手機上現有的音檔 → 建會議 → 上傳給 server 背景轉錄 → 進詳情頁(會輪詢)。
   Future<void> _importAudio(BuildContext context, WidgetRef ref) async {
-    XFile? picked;
+    String? path;
     try {
-      // 用文件選取器(iOS Files / Android SAF)挑音檔,而非音樂庫選取器
-      // (音樂庫在 iOS 需 NSAppleMusicUsageDescription,否則閃退,且是選歌不是選檔)。
-      // iOS 端必須有 uniformTypeIdentifiers、Android 端必須有 extensions 或 mimeTypes,故三者都給。
-      picked = await openFile(
-        acceptedTypeGroups: const [
-          XTypeGroup(
-            label: '音檔',
-            extensions: ['wav', 'm4a', 'mp3', 'aac', 'aiff', 'caf', 'flac'],
-            mimeTypes: ['audio/*'],
-            uniformTypeIdentifiers: ['public.audio'],
-          ),
-        ],
-      );
+      // Android 走自寫的 SAF 選檔(file_selector_android 會把整檔讀進記憶體,
+      // 選大錄音檔會閃退);iOS 沿用 file_selector。見 AudioFilePicker。
+      path = await AudioFilePicker.pick();
     } catch (e) {
       if (context.mounted) _toast(context, '選取檔案失敗:$e');
       return;
     }
-    if (picked == null) return; // 使用者取消
-    final path = picked.path;
+    if (path == null) return; // 使用者取消
 
     if (context.mounted) {
       showDialog(

@@ -30,8 +30,12 @@ class MainActivity : FlutterActivity() {
     private var pendingSaveResult: MethodChannel.Result? = null
     private var pendingSaveSrc: String? = null
 
+    /// SAF「開啟文件」進行中的狀態(選音檔上傳用)。
+    private var pendingPickResult: MethodChannel.Result? = null
+
     companion object {
         private const val REQ_CREATE_DOCUMENT = 4711
+        private const val REQ_OPEN_DOCUMENT = 4712
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -124,15 +128,67 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // 選取既有音檔(SAF)。不用 file_selector_android —— 它會把整個檔案讀成
+        // bytes 經 channel 傳回 Dart,選上百 MB 的錄音檔會 OOM 閃退。
+        // 這裡串流複製到快取,只回傳路徑。見 lib/services/audio_file_picker.dart。
+        MethodChannel(messenger, "app/pick_audio")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "pick") {
+                    if (pendingPickResult != null) {
+                        result.success(null) // 已有選取器開著
+                    } else {
+                        pendingPickResult = result
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "audio/*"
+                        }
+                        try {
+                            startActivityForResult(intent, REQ_OPEN_DOCUMENT)
+                        } catch (e: Exception) {
+                            pendingPickResult = null
+                            result.success(null)
+                        }
+                    }
+                } else {
+                    result.notImplemented()
+                }
+            }
+
         // 冷啟動:啟動本 Activity 的 intent 可能就帶著分享的檔案。
         handleIncomingIntent(intent)
     }
 
-    /// SAF 另存新檔的結果:把來源檔內容寫進使用者選定的位置。
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_CREATE_DOCUMENT) return
+        when (requestCode) {
+            REQ_CREATE_DOCUMENT -> handleSaveResult(resultCode, data)
+            REQ_OPEN_DOCUMENT -> handlePickResult(resultCode, data)
+        }
+    }
 
+    /// SAF 選檔結果:串流複製到快取後回傳路徑(不把檔案讀進記憶體)。
+    private fun handlePickResult(resultCode: Int, data: Intent?) {
+        val result = pendingPickResult ?: return
+        pendingPickResult = null
+
+        val uri = data?.data
+        if (resultCode != Activity.RESULT_OK || uri == null) {
+            result.success(null) // 使用者取消
+            return
+        }
+        // 大檔複製較久,不佔用主執行緒。
+        Thread {
+            val path = try {
+                copyToCache(uri)
+            } catch (e: Exception) {
+                null
+            }
+            runOnUiThread { result.success(path) }
+        }.start()
+    }
+
+    /// SAF 另存新檔的結果:把來源檔內容寫進使用者選定的位置。
+    private fun handleSaveResult(resultCode: Int, data: Intent?) {
         val result = pendingSaveResult
         val src = pendingSaveSrc
         pendingSaveResult = null
