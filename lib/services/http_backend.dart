@@ -456,13 +456,36 @@ class _HttpTranscriptionSession implements TranscriptionSession {
 
   IOWebSocketChannel? _channel;
   final _controller = StreamController<TranscriptUpdate>.broadcast();
+  final _linkState = StreamController<TranscriptionLinkState>.broadcast();
   final _pendingAudio = <List<int>>[];
   final _finalReceived = Completer<void>();
   bool _ready = false;
   bool _closed = false;
 
+  /// 重連相關。網路不穩(VPN、行動網路切換)時 WS 會斷,先前沒有重連機制,
+  /// 一斷就再也送不出音訊 —— 使用者可能錄很久才發現逐字稿早已停止。
+  int _attempt = 0;
+  Timer? _retryTimer;
+  bool _gap = false;
+
+  /// 重連期間最多緩衝這麼多音訊(約 30 秒 @16kHz/16-bit ≈ 960KB)。
+  /// 不無限緩衝:長時間斷線會吃掉大量記憶體,而本機錄音檔是完整的,
+  /// 缺的部分可在結束後用整檔重新轉錄補回(見 hadGap)。
+  static const _maxPendingBytes = 960 * 1024;
+  int _pendingBytes = 0;
+
   @override
   Stream<TranscriptUpdate> get updates => _controller.stream;
+
+  @override
+  Stream<TranscriptionLinkState> get linkState => _linkState.stream;
+
+  @override
+  bool get hadGap => _gap;
+
+  void _setLink(TranscriptionLinkState s) {
+    if (!_linkState.isClosed) _linkState.add(s);
+  }
 
   Future<void> _connect() async {
     try {
@@ -486,14 +509,10 @@ class _HttpTranscriptionSession implements TranscriptionSession {
 
       channel.stream.listen(
         _onMessage,
-        onError: (e) {
-          if (!_controller.isClosed) {
-            _controller.addError(ApiException.network(e));
-          }
-        },
-        onDone: () {
-          if (!_controller.isClosed) _controller.close();
-        },
+        // 斷線不再直接放棄:自動重連。server 支援以同一 meeting_id 續錄,
+        // 重連後新的音訊會接續寫入同一場逐字稿。
+        onError: (_) => _handleDrop(),
+        onDone: _handleDrop,
         cancelOnError: false,
       );
 
@@ -509,15 +528,41 @@ class _HttpTranscriptionSession implements TranscriptionSession {
       }));
 
       _ready = true;
+      _attempt = 0;
+      _setLink(TranscriptionLinkState.online);
       for (final chunk in _pendingAudio) {
         channel.sink.add(chunk);
       }
       _pendingAudio.clear();
+      _pendingBytes = 0;
     } catch (e) {
-      if (!_controller.isClosed) {
-        _controller.addError(ApiException.network(e));
-      }
+      _handleDrop();
     }
+  }
+
+  /// 連線掉了(錯誤或被關閉):排程重連。使用者主動 stop 時不重連。
+  void _handleDrop() {
+    if (_closed) return;
+    _ready = false;
+    try {
+      _channel?.sink.close();
+    } catch (_) {}
+    _channel = null;
+
+    _attempt++;
+    if (_attempt > 12) {
+      // 放棄自動重連(約累計數分鐘都連不上);錄音仍繼續、本機檔案完整,
+      // 由 UI 提示使用者結束後用整檔重新轉錄。
+      _setLink(TranscriptionLinkState.failed);
+      return;
+    }
+    _setLink(TranscriptionLinkState.reconnecting);
+    // 指數退避但上限 10 秒 —— VPN 這類短暫抖動要能快速恢復。
+    final secs = _attempt <= 3 ? _attempt : (_attempt <= 6 ? 5 : 10);
+    _retryTimer?.cancel();
+    _retryTimer = Timer(Duration(seconds: secs), () {
+      if (!_closed) _connect();
+    });
   }
 
   void _onMessage(dynamic message) {
@@ -589,9 +634,19 @@ class _HttpTranscriptionSession implements TranscriptionSession {
   void sendAudio(List<int> pcm16) {
     if (_closed) return;
     if (_ready && _channel != null) {
-      _channel!.sink.add(pcm16);
-    } else {
+      try {
+        _channel!.sink.add(pcm16);
+      } catch (_) {
+        _handleDrop();
+      }
+      return;
+    }
+    // 斷線中:緩衝一小段等重連後補送;超過上限就丟棄並標記缺口。
+    if (_pendingBytes + pcm16.length <= _maxPendingBytes) {
       _pendingAudio.add(pcm16);
+      _pendingBytes += pcm16.length;
+    } else {
+      _gap = true;
     }
   }
 
@@ -599,6 +654,7 @@ class _HttpTranscriptionSession implements TranscriptionSession {
   Future<void> stop() async {
     if (_closed) return;
     _closed = true;
+    _retryTimer?.cancel();
     try {
       _channel?.sink.add(jsonEncode({'type': 'end'}));
       // 等 server 回 final(所有句子定稿完成);逾時則不再等,直接關閉。
@@ -606,5 +662,6 @@ class _HttpTranscriptionSession implements TranscriptionSession {
           .timeout(const Duration(seconds: 15), onTimeout: () {});
       await _channel?.sink.close();
     } catch (_) {}
+    if (!_linkState.isClosed) await _linkState.close();
   }
 }

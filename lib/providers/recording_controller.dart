@@ -46,6 +46,8 @@ class RecordingState {
     this.translations = const {},
     this.translationStatus = TranslationStatus.off,
     this.interrupted = false,
+    this.linkState = TranscriptionLinkState.online,
+    this.hadGap = false,
   });
 
   final RecordingPhase phase;
@@ -74,6 +76,14 @@ class RecordingState {
   /// 音訊正被中斷(來電、鬧鐘、其他 App 搶音訊)。中斷結束會自動恢復錄音。
   final bool interrupted;
 
+  /// 與 server 的即時轉錄連線狀態。網路不穩(VPN、行動網路)時會變 reconnecting,
+  /// UI 需**持續**顯示,否則使用者可能錄很久才發現逐字稿早就停了。
+  final TranscriptionLinkState linkState;
+
+  /// 是否曾因斷線而有音訊沒送到 server(逐字稿可能缺一段)。
+  /// 本機錄音檔仍完整,結束後可用整檔重新轉錄補回。
+  final bool hadGap;
+
   bool get isActive =>
       phase == RecordingPhase.recording || phase == RecordingPhase.paused;
 
@@ -91,6 +101,8 @@ class RecordingState {
     Map<String, String>? translations,
     TranslationStatus? translationStatus,
     bool? interrupted,
+    TranscriptionLinkState? linkState,
+    bool? hadGap,
   }) {
     return RecordingState(
       phase: phase ?? this.phase,
@@ -104,6 +116,8 @@ class RecordingState {
       translations: translations ?? this.translations,
       translationStatus: translationStatus ?? this.translationStatus,
       interrupted: interrupted ?? this.interrupted,
+      linkState: linkState ?? this.linkState,
+      hadGap: hadGap ?? this.hadGap,
     );
   }
 }
@@ -117,6 +131,7 @@ class RecordingController extends Notifier<RecordingState> {
   StreamSubscription<TranscriptUpdate>? _segSub;
   StreamSubscription<Uint8List>? _audioSub;
   StreamSubscription<AudioInterruptionEvent>? _interruptSub;
+  StreamSubscription<TranscriptionLinkState>? _linkSub;
   Timer? _timer;
 
   /// 裝置內即時翻譯(雙語字幕);翻譯關閉或模型未就緒時 [_translationReady] 為 false。
@@ -196,6 +211,10 @@ class RecordingController extends Notifier<RecordingState> {
           onError: (e) => state = state.copyWith(
               error: e is ApiException ? e.message : '轉錄連線中斷'),
         );
+        // 連線狀態改為持續顯示(不再只用一次性提示)。
+        _linkSub = session.linkState.listen((s) {
+          state = state.copyWith(linkState: s, hadGap: session.hadGap);
+        });
       }
 
       final pcmStream = await recorder.start(meetingId: meeting.id);
@@ -254,6 +273,8 @@ class RecordingController extends Notifier<RecordingState> {
     await _session?.stop();
     await _segSub?.cancel();
     _segSub = null;
+    await _linkSub?.cancel();
+    _linkSub = null;
     _session = null;
 
     // 本地保存錄音檔(供播放/防斷線)。
@@ -397,6 +418,7 @@ class RecordingController extends Notifier<RecordingState> {
     await RecordingForegroundService.stop();
     await _audioSub?.cancel();
     await _segSub?.cancel();
+    await _linkSub?.cancel();
     try {
       await _session?.stop();
     } catch (_) {}
@@ -405,6 +427,7 @@ class RecordingController extends Notifier<RecordingState> {
     } catch (_) {}
     _audioSub = null;
     _segSub = null;
+    _linkSub = null;
     _session = null;
   }
 

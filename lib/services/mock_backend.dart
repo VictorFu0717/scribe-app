@@ -281,6 +281,14 @@ class _MockTranscriptionSession implements TranscriptionSession {
   int _idx = 0;
   int _partial = 0;
 
+  /// Mock 永遠視為連線正常、無缺口。
+  @override
+  Stream<TranscriptionLinkState> get linkState =>
+      Stream.value(TranscriptionLinkState.online);
+
+  @override
+  bool get hadGap => false;
+
   static const _lines = [
     '好,我們開始今天的會議。',
     '先看一下上週待辦的進度。',

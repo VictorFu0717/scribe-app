@@ -51,12 +51,36 @@ class TranscriptUpdate {
   final TranscriptSegment? partial;
 }
 
+/// 即時轉錄連線的狀態。
+enum TranscriptionLinkState {
+  /// 連線中(尚未就緒)。
+  connecting,
+
+  /// 已連上,音訊正常送達 server。
+  online,
+
+  /// 連線中斷,正在自動重連(此期間的音訊送不出去)。
+  reconnecting,
+
+  /// 已放棄重連(需使用者處理)。
+  failed,
+}
+
 /// 一次即時轉錄連線(對應 scribe `WS /ws/asr`)。
 ///
 /// 上傳 16kHz PCM、接收累積式 `TranscriptUpdate`。
 abstract class TranscriptionSession {
   /// server 回傳的逐字稿累積快照流。
   Stream<TranscriptUpdate> get updates;
+
+  /// 連線狀態流。UI 需據此**持續**顯示中斷警示 —— 網路不穩(如 VPN)時若只用
+  /// 一次性提示,使用者可能錄了很久才發現逐字稿早已停止。
+  Stream<TranscriptionLinkState> get linkState;
+
+  /// 是否曾因斷線而有音訊未送達 server(逐字稿可能缺一段)。
+  ///
+  /// 為 true 時錄音結束後應提示使用者:本機錄音檔是完整的,可用整檔重新轉錄補回。
+  bool get hadGap;
 
   /// 送出一段 16-bit PCM 音訊(little-endian, mono, 16kHz)。
   void sendAudio(List<int> pcm16);

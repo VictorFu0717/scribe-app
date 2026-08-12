@@ -1,19 +1,24 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/theme/app_style.dart';
 import '../../core/utils/formatters.dart';
 import '../../providers/recording_controller.dart';
+import '../../providers/service_providers.dart';
 import '../../providers/settings_controller.dart';
-import '../../routing/app_router.dart';
-import '../../widgets/level_meter.dart';
-import '../../widgets/recording_orb.dart';
-import '../../widgets/speaker_count_picker.dart';
-import '../../widgets/soft_card.dart';
 import '../../providers/translation_models_controller.dart';
+import '../../routing/app_router.dart';
+import '../../services/backend.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
+import '../../widgets/level_meter.dart';
+import '../../widgets/recording_orb.dart';
+import '../../widgets/soft_card.dart';
+import '../../widgets/speaker_count_picker.dart';
 import '../../widgets/transcript_view.dart';
 
 class RecordingScreen extends ConsumerStatefulWidget {
@@ -40,12 +45,70 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
   }
 
   Future<void> _stop() async {
+    // 先記下是否曾斷線 —— stop() 之後 state 會被重設。
+    final st = ref.read(recordingControllerProvider);
+    final incomplete =
+        st.hadGap || st.linkState == TranscriptionLinkState.failed;
+
     final id = await ref.read(recordingControllerProvider.notifier).stop();
     if (!mounted) return;
-    if (id != null) {
-      context.pushReplacement(Routes.meeting(id));
-    } else {
+    if (id == null) {
       context.pop();
+      return;
+    }
+    // 曾斷線 → 逐字稿可能缺一段,但本機錄音檔完整,可用整檔重新轉錄補回。
+    if (incomplete) await _offerRetranscribe(id);
+    if (!mounted) return;
+    context.pushReplacement(Routes.meeting(id));
+  }
+
+  /// 連線曾中斷時,詢問是否用完整錄音檔重新轉錄(補回缺失的逐字稿)。
+  Future<void> _offerRetranscribe(String meetingId) async {
+    final path = ref.read(localRecordingStoreProvider).pathFor(meetingId);
+    if (path == null || !File(path).existsSync()) return;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('逐字稿可能不完整'),
+        content: const Text('錄音期間與 server 的連線曾中斷,那段時間的語音沒有送出去轉錄。\n\n'
+            '手機上的錄音檔是完整的,可以用整檔重新轉錄補回(需上傳,長會議會花一些時間)。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('稍後再說')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('重新轉錄')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(children: [
+          SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 3)),
+          SizedBox(width: 16),
+          Expanded(child: Text('正在上傳完整錄音…')),
+        ]),
+      ),
+    );
+    try {
+      await ref.read(backendProvider).uploadAudio(meetingId, path,
+          config: ref.read(transcriptionConfigProvider));
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e is ApiException ? e.message : '重新轉錄失敗:$e')));
     }
   }
 
@@ -157,6 +220,31 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
           child: LevelMeter(level: state.level, active: !paused),
         ),
         const SizedBox(height: 8),
+        // 轉錄連線中斷:**持續**顯示(先前只用一次性 SnackBar,使用者可能錄很久
+        // 才發現逐字稿早已停止 —— VPN/行動網路不穩時很容易發生)。
+        if (state.linkState == TranscriptionLinkState.reconnecting ||
+            state.linkState == TranscriptionLinkState.failed)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: Row(
+              children: [
+                Icon(Icons.cloud_off_rounded, size: 15, color: scheme.error),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                      state.linkState == TranscriptionLinkState.reconnecting
+                          ? '逐字稿連線中斷,正在自動重連…(錄音仍在繼續,音檔完整)'
+                          : '逐字稿連線無法恢復 —— 錄音仍在繼續且音檔完整,'
+                              '結束後可用整檔重新轉錄補回',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.error,
+                          fontWeight: FontWeight.w600),
+                      maxLines: 3),
+                ),
+              ],
+            ),
+          ),
         // 音訊被中斷(來電等):明確告知,並說明會自動恢復。
         if (state.interrupted)
           Padding(
