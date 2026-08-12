@@ -81,7 +81,9 @@ class ExportService {
     for (final s in segs) {
       final t = s.text.trim();
       if (t.isEmpty) continue;
-      b.writeln(s.speaker != null ? '${s.speaker}：$t' : t);
+      // 帶時間戳:方便回去對照錄音(App 內點時間戳可直接跳播)。
+      final stamp = s.startMs != null ? '[${_timeStamp(s.startMs!)}] ' : '';
+      b.writeln(s.speaker != null ? '$stamp${s.speaker}：$t' : '$stamp$t');
       final translated = translations[s.id]?.trim();
       if (translated != null && translated.isNotEmpty) {
         b.writeln('    $translated');
@@ -140,6 +142,15 @@ class ExportService {
       subject: baseName,
       sharePositionOrigin: origin, // iPad 需要錨點
     ));
+  }
+
+  /// 毫秒 → mm:ss(超過一小時才帶小時),與 App 內顯示一致。
+  static String _timeStamp(int ms) {
+    final d = Duration(milliseconds: ms);
+    String two(int n) => n.toString().padLeft(2, '0');
+    final m = two(d.inMinutes.remainder(60));
+    final sec = two(d.inSeconds.remainder(60));
+    return d.inHours > 0 ? '${d.inHours}:$m:$sec' : '$m:$sec';
   }
 
   /// 錄音檔對外顯示的檔名(分享與「存到手機」共用,兩處要一致)。

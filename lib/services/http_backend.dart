@@ -611,6 +611,9 @@ class _HttpTranscriptionSession implements TranscriptionSession {
           text: text,
           isFinal: true,
           speaker: (spk is String && spk.isNotEmpty) ? spk : null,
+          // 時間戳:供事後對照錄音(逐字稿可點時間跳到該處播放)。
+          startMs: (s['start_ms'] as num?)?.toInt(),
+          endMs: (s['end_ms'] as num?)?.toInt(),
         ));
       }
     }

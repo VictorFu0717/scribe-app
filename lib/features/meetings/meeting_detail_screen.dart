@@ -238,6 +238,13 @@ class _TranscriptTab extends ConsumerWidget {
             segments: segments,
             emptyHint: '這場會議還沒有逐字稿',
             translations: translations,
+            // 點時間戳跳到錄音的該位置並播放 —— 辨識有誤時可直接回去對照原音。
+            // 播放器是 App 層級共用的,進入本頁時 AudioPlayerBar 已載入音源。
+            onSeek: (position) async {
+              final player = ref.read(audioPlayerProvider);
+              await player.seek(position);
+              await player.play();
+            },
           ),
         );
         if (segments.isEmpty) return view;
