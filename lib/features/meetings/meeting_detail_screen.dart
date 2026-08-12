@@ -15,6 +15,7 @@ import '../../providers/meeting_translation_controller.dart';
 import '../../providers/transcript_translation_controller.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
+import '../../services/audio_convert.dart';
 import '../../services/export_service.dart';
 import '../../widgets/audio_player_bar.dart';
 import '../../widgets/export_button.dart';
@@ -420,32 +421,62 @@ class _MeetingTranslationControls extends ConsumerWidget {
 
 /// 分享本地錄音檔:叫出系統分享面板(存到「檔案」、AirDrop、其他 App…)。
 /// 點擊時把自身位置當 iPad 分享面板錨點傳給 ExportService。
-class _ShareAudioButton extends StatelessWidget {
+class _ShareAudioButton extends ConsumerStatefulWidget {
   const _ShareAudioButton({required this.meeting, required this.audioPath});
   final Meeting meeting;
   final String audioPath;
 
   @override
+  ConsumerState<_ShareAudioButton> createState() => _ShareAudioButtonState();
+}
+
+class _ShareAudioButtonState extends ConsumerState<_ShareAudioButton> {
+  bool _busy = false;
+
+  @override
   Widget build(BuildContext context) {
     return IconButton(
       tooltip: '分享錄音檔',
-      icon: const Icon(Icons.ios_share),
-      onPressed: () => _share(context),
+      icon: _busy
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2.5))
+          : const Icon(Icons.ios_share),
+      onPressed: _busy ? null : _share,
     );
   }
 
-  Future<void> _share(BuildContext context) async {
+  Future<void> _share() async {
     final box = context.findRenderObject() as RenderBox?;
     final origin = (box != null && box.hasSize)
         ? box.localToGlobal(Offset.zero) & box.size
         : null;
+
+    var path = widget.audioPath;
+    setState(() => _busy = true);
     try {
-      await ExportService.exportAudio(meeting, audioPath, shareOrigin: origin);
+      // WAV 太大送不出去(一小時約 110MB,實測 LINE 無法傳送)→ 先壓成 m4a(約 9MB)。
+      // 轉檔成功就更新本機記錄並刪掉 WAV,之後播放/分享都用小檔,也省下手機空間。
+      // 舊錄音是 WAV,故這裡處理才能讓既有檔案也受益(新錄音在停止時已壓縮)。
+      if (path.toLowerCase().endsWith('.wav')) {
+        final converted = await AudioConvert.wavToM4a(path);
+        if (converted != null) {
+          path = converted;
+          await ref
+              .read(localRecordingStoreProvider)
+              .save(widget.meeting.id, converted);
+        }
+      }
+      await ExportService.exportAudio(widget.meeting, path,
+          shareOrigin: origin);
     } catch (e) {
-      if (context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('分享失敗:$e')));
       }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 }

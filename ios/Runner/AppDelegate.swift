@@ -1,3 +1,4 @@
+import AVFoundation
 import Flutter
 import UIKit
 
@@ -6,6 +7,7 @@ import UIKit
   /// 保留強引用,否則 channel 會被釋放而收不到呼叫。
   private var keepAwakeChannel: FlutterMethodChannel?
   private var incomingFileChannel: FlutterMethodChannel?
+  private var audioConvertChannel: FlutterMethodChannel?
 
   /// 從其他 App 分享/開啟進來、等待 Dart 端取走的音檔路徑。
   /// 冷啟動時 Dart 尚未就緒,故先暫存,由 Dart 主動來取(見 lib/services/incoming_file.dart)。
@@ -107,5 +109,51 @@ import UIKit
       result(path)
     }
     incomingFileChannel = incoming
+
+    // WAV → m4a(AAC):一小時 WAV 約 110MB,轉檔後約 9MB,才傳得出去。
+    // 見 lib/services/audio_convert.dart。
+    let convert = FlutterMethodChannel(
+      name: "app/audio_convert", binaryMessenger: messenger)
+    convert.setMethodCallHandler { call, result in
+      guard call.method == "wavToM4a",
+        let args = call.arguments as? [String: Any],
+        let src = args["src"] as? String,
+        let dst = args["dst"] as? String
+      else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      AppDelegate.exportToM4a(src: src, dst: dst, result: result)
+    }
+    audioConvertChannel = convert
+  }
+
+  /// 用 AVFoundation 把 WAV 轉成 m4a(AAC)。
+  ///
+  /// 用 AppleM4A preset:它會依原始取樣率/聲道自動選合適位元率 ——
+  /// 實測 16kHz mono 的結果約為 WAV 的 1/12,不需要手動指定位元率。
+  private static func exportToM4a(
+    src: String, dst: String, result: @escaping FlutterResult
+  ) {
+    let srcURL = URL(fileURLWithPath: src)
+    let dstURL = URL(fileURLWithPath: dst)
+    try? FileManager.default.removeItem(at: dstURL) // 匯出目標必須不存在
+
+    let asset = AVURLAsset(url: srcURL)
+    guard
+      let session = AVAssetExportSession(
+        asset: asset, presetName: AVAssetExportPresetAppleM4A)
+    else {
+      result(false)
+      return
+    }
+    session.outputURL = dstURL
+    session.outputFileType = .m4a
+    session.exportAsynchronously {
+      // 回到主執行緒回覆 Flutter(MethodChannel 要求)。
+      DispatchQueue.main.async {
+        result(session.status == .completed)
+      }
+    }
   }
 }

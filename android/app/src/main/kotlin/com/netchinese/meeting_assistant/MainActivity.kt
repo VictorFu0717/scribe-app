@@ -1,6 +1,10 @@
 package com.netchinese.meeting_assistant
 
 import android.content.Intent
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaFormat
+import android.media.MediaMuxer
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.view.WindowManager
@@ -8,6 +12,8 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.FileInputStream
+import java.nio.ByteBuffer
 
 class MainActivity : FlutterActivity() {
     /// 從其他 App 分享/開啟進來、等待 Dart 端取走的音檔路徑。
@@ -49,6 +55,31 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+
+        // WAV → m4a(AAC):一小時 WAV 約 110MB,轉檔後約 9MB,才傳得出去。
+        // 見 lib/services/audio_convert.dart。
+        MethodChannel(messenger, "app/audio_convert")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "wavToM4a") {
+                    val src = call.argument<String>("src")
+                    val dst = call.argument<String>("dst")
+                    if (src == null || dst == null) {
+                        result.success(false)
+                    } else {
+                        // 編碼是耗時工作,不可佔用主執行緒。
+                        Thread {
+                            val ok = try {
+                                WavToAac.convert(src, dst)
+                            } catch (e: Exception) {
+                                false
+                            }
+                            runOnUiThread { result.success(ok) }
+                        }.start()
+                    }
+                } else {
+                    result.notImplemented()
+                }
+            }
 
         // 冷啟動:啟動本 Activity 的 intent 可能就帶著分享的檔案。
         handleIncomingIntent(intent)
