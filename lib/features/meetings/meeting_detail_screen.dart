@@ -16,6 +16,7 @@ import '../../providers/transcript_translation_controller.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
 import '../../services/audio_convert.dart';
+import '../../services/save_to_device.dart';
 import '../../services/export_service.dart';
 import '../../widgets/audio_player_bar.dart';
 import '../../widgets/export_button.dart';
@@ -166,6 +167,9 @@ class _Body extends ConsumerWidget {
                 ),
                 if (canShareAudio) ...[
                   const SizedBox(width: 4),
+                  // Android 的分享選單沒有「儲存到檔案」,另給一個存到手機的按鈕。
+                  if (SaveToDevice.isSupported)
+                    _SaveAudioButton(meeting: meeting, audioPath: localPath),
                   _ShareAudioButton(meeting: meeting, audioPath: localPath),
                 ],
               ],
@@ -474,6 +478,70 @@ class _ShareAudioButtonState extends ConsumerState<_ShareAudioButton> {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('分享失敗:$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+}
+
+/// 把錄音檔存到手機(Android)。
+///
+/// iOS 不顯示此按鈕 —— 其分享面板已內建「儲存到檔案」;Android 的分享選單只列
+/// 可接收檔案的 App,沒有存檔選項,故需另走 SAF 的「另存新檔」。
+class _SaveAudioButton extends ConsumerStatefulWidget {
+  const _SaveAudioButton({required this.meeting, required this.audioPath});
+  final Meeting meeting;
+  final String audioPath;
+
+  @override
+  ConsumerState<_SaveAudioButton> createState() => _SaveAudioButtonState();
+}
+
+class _SaveAudioButtonState extends ConsumerState<_SaveAudioButton> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: '存到手機',
+      icon: _busy
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2.5))
+          : const Icon(Icons.download_rounded),
+      onPressed: _busy ? null : _save,
+    );
+  }
+
+  Future<void> _save() async {
+    var path = widget.audioPath;
+    setState(() => _busy = true);
+    try {
+      // 與分享一致:WAV 太大(一小時約 110MB)先壓成 m4a,並更新本機記錄。
+      if (path.toLowerCase().endsWith('.wav')) {
+        final converted = await AudioConvert.wavToM4a(path);
+        if (converted != null) {
+          path = converted;
+          await ref
+              .read(localRecordingStoreProvider)
+              .save(widget.meeting.id, converted);
+        }
+      }
+      final ok = await SaveToDevice.save(
+        path,
+        fileName: ExportService.audioFileName(widget.meeting, path),
+        mimeType: ExportService.audioMimeType(path),
+      );
+      if (mounted && ok) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('已存到手機')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('存檔失敗:$e')));
       }
     } finally {
       if (mounted) setState(() => _busy = false);

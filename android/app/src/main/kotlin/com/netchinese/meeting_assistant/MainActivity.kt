@@ -1,5 +1,6 @@
 package com.netchinese.meeting_assistant
 
+import android.app.Activity
 import android.content.Intent
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
@@ -23,6 +24,15 @@ class MainActivity : FlutterActivity() {
 
     /// 保留 channel 以便收到檔案時主動通知 Dart(僅作觸發訊號)。
     private var incomingFileChannel: MethodChannel? = null
+
+    /// SAF「另存新檔」進行中的狀態:對話框是非同步的,結果要在 onActivityResult 才拿到。
+    /// Android 的分享選單沒有「儲存到檔案」,存到手機必須走 ACTION_CREATE_DOCUMENT。
+    private var pendingSaveResult: MethodChannel.Result? = null
+    private var pendingSaveSrc: String? = null
+
+    companion object {
+        private const val REQ_CREATE_DOCUMENT = 4711
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -81,8 +91,70 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // 存到手機(SAF 另存新檔)。iOS 不需要 —— 其分享面板已內建「儲存到檔案」。
+        // 見 lib/services/save_to_device.dart。
+        MethodChannel(messenger, "app/save_file")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "save") {
+                    val src = call.argument<String>("src")
+                    val name = call.argument<String>("name") ?: "recording.m4a"
+                    val mime = call.argument<String>("mime") ?: "audio/mp4"
+                    if (src == null || !File(src).exists()) {
+                        result.success(false)
+                    } else if (pendingSaveResult != null) {
+                        result.success(false) // 已有對話框進行中
+                    } else {
+                        pendingSaveResult = result
+                        pendingSaveSrc = src
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = mime
+                            putExtra(Intent.EXTRA_TITLE, name)
+                        }
+                        try {
+                            startActivityForResult(intent, REQ_CREATE_DOCUMENT)
+                        } catch (e: Exception) {
+                            pendingSaveResult = null
+                            pendingSaveSrc = null
+                            result.success(false)
+                        }
+                    }
+                } else {
+                    result.notImplemented()
+                }
+            }
+
         // 冷啟動:啟動本 Activity 的 intent 可能就帶著分享的檔案。
         handleIncomingIntent(intent)
+    }
+
+    /// SAF 另存新檔的結果:把來源檔內容寫進使用者選定的位置。
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_CREATE_DOCUMENT) return
+
+        val result = pendingSaveResult
+        val src = pendingSaveSrc
+        pendingSaveResult = null
+        pendingSaveSrc = null
+        if (result == null) return
+
+        val uri = data?.data
+        if (resultCode != Activity.RESULT_OK || uri == null || src == null) {
+            result.success(false) // 使用者取消
+            return
+        }
+        // 寫檔可能較久(錄音檔可達數十 MB),不佔用主執行緒。
+        Thread {
+            val ok = try {
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    File(src).inputStream().use { input -> input.copyTo(output) }
+                } != null
+            } catch (e: Exception) {
+                false
+            }
+            runOnUiThread { result.success(ok) }
+        }.start()
     }
 
     /// App 已在執行時再分享一個檔案(launchMode=singleTop 會走這裡)。

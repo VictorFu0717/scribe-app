@@ -51,7 +51,7 @@ class ExportService {
       throw StateError('找不到本地錄音檔(可能已被清除)');
     }
     final ext = _ext(audioPath);
-    final name = '${_sanitize(meeting.title)}_錄音_${_stamp(meeting.createdAt)}.$ext';
+    final name = audioFileName(meeting, audioPath);
     await SharePlus.instance.share(ShareParams(
       files: [XFile(audioPath, mimeType: _audioMime(ext), name: name)],
       subject: name,
@@ -141,6 +141,14 @@ class ExportService {
       sharePositionOrigin: origin, // iPad 需要錨點
     ));
   }
+
+  /// 錄音檔對外顯示的檔名(分享與「存到手機」共用,兩處要一致)。
+  static String audioFileName(Meeting meeting, String audioPath) =>
+      '${_sanitize(meeting.title)}_錄音_${_stamp(meeting.createdAt)}'
+      '.${_ext(audioPath)}';
+
+  /// 錄音檔的 MIME type(供「存到手機」建立文件時使用)。
+  static String audioMimeType(String audioPath) => _audioMime(_ext(audioPath));
 
   static String _ext(String path) {
     final i = path.lastIndexOf('.');
