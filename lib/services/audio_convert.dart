@@ -6,7 +6,10 @@ import 'package:flutter/services.dart';
 ///
 /// 為什麼需要:錄音為 16kHz/mono/16-bit PCM,一小時的 WAV 約 **110MB** ——
 /// 佔手機空間,而且大到無法用 LINE 等通訊軟體傳送(實測 15 秒可傳、一小時不行)。
-/// 同樣內容轉成 AAC 約 **28MB**(64kbps),仍便於用通訊軟體傳送。
+/// 同樣內容轉成 AAC 約 **8MB**,便於用通訊軟體傳送。
+///
+/// 只用於本機保存、分享與存檔 —— **上傳給 server 辨識的一律是未壓縮原檔**,
+/// 所以壓縮不影響逐字稿準確度。
 ///
 /// 用各平台原生編碼器(iOS AVFoundation / Android MediaCodec)而不引入
 /// ffmpeg 之類的套件:體積小、無額外原生編譯風險(本專案已多次因 plugin 受阻)。
@@ -15,17 +18,11 @@ class AudioConvert {
 
   static const MethodChannel _channel = MethodChannel('app/audio_convert');
 
-  /// 依序嘗試的 AAC 位元率(高品質優先,不支援就降階)。
+  /// Android 的 AAC 位元率(iOS 不使用 —— 那邊交由系統 preset 決定)。
   ///
-  /// 為什麼要降階:AAC 對低取樣率的位元率有上限,超過就**整個編碼失敗**。
-  /// 實測 16kHz 單聲道(本 App 的錄音格式):48000 可用(實際輸出約 31.5kbps,
-  /// 一小時約 13.5MB),而先前設的 **64000 完全不支援** ——
-  /// 編碼器回 "The encoding parameters are not supported",轉檔一直靜默失敗,
-  /// 所以分享出去的檔案始終沒被壓縮。
-  ///
-  /// 取可用範圍內最高者:研究指出 16kbps 級別的壓縮會使 ASR 的 WER 相對劣化
-  /// 約 12.6%,而本機檔案會用於重新轉錄,品質不宜太低。
-  static const List<int> _bitRates = [48000, 32000, 24000];
+  /// AAC 對低取樣率有上限,超過會整個編碼失敗:16kHz 單聲道實測 48000 起即不被
+  /// 接受。32000 在該格式下可用(實際輸出約 24kbps)。
+  static const int _androidBitRate = 32000;
 
   /// 這個檔案是否為未壓縮的 WAV。
   ///
@@ -59,19 +56,15 @@ class AudioConvert {
     final dst = '$base.m4a';
     if (dst == wavPath) return null; // 來源本來就叫 .m4a,不覆蓋自己
     try {
-      var ok = false;
-      // 逐一嘗試:不同來源格式(取樣率/聲道)能接受的上限不同。
-      for (final bitRate in _bitRates) {
-        ok = await _channel.invokeMethod<bool>('wavToM4a', {
-              'src': wavPath,
-              'dst': dst,
-              'bitRate': bitRate,
-            }) ??
-            false;
-        if (ok && File(dst).existsSync() && File(dst).lengthSync() > 0) break;
-        ok = false;
+      final ok = await _channel.invokeMethod<bool>('wavToM4a', {
+            'src': wavPath,
+            'dst': dst,
+            'bitRate': _androidBitRate,
+          }) ??
+          false;
+      if (!ok || !File(dst).existsSync() || File(dst).lengthSync() == 0) {
+        return null;
       }
-      if (!ok || !File(dst).existsSync()) return null;
       if (deleteSource) {
         try {
           await File(wavPath).delete();

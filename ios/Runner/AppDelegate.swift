@@ -174,126 +174,48 @@ import UIKit
     UIApplication.shared.endBackgroundTask(id)
   }
 
-  /// 用 AVFoundation 把 WAV 轉成 m4a(AAC),**明確指定位元率**。
+  /// 用 AVFoundation 把 WAV 轉成 m4a(AAC)。
   ///
-  /// 不用 AVAssetExportSession + AppleM4A preset:那個 preset 的位元率由系統決定、
-  /// 無法控制,實測同款編碼器的自動值僅約 21kbps。研究指出 16kbps 級別的壓縮會使
-  /// ASR 的 WER 相對劣化約 12.6%,而本機檔案會用於「斷線後重新轉錄」——
-  /// 那正是最需要準確度的場合。故改用 AVAssetReader/Writer 固定 64kbps
-  /// (與 Android 一致;16kHz 單聲道語音為 4:1 壓縮,一小時約 28MB 仍便於傳送)。
+  /// 使用高階的 AVAssetExportSession + AppleM4A preset,**不自行指定位元率**。
+  ///
+  /// 為什麼不用 AVAssetReader/Writer 精確控制位元率:AAC 對低取樣率有位元率上限,
+  /// 超過就整個編碼失敗(16kHz 單聲道實測 48000 起即不被接受),而低階 API 還有
+  /// startSession 順序、重複 callback 等陷阱 —— 本專案已為此連續三次閃退。
+  /// 高階 API 由系統決定合法參數,completion 只會呼叫一次,可靠得多。
+  ///
+  /// 實測輸出:1 ch / 16000 Hz / aac / 約 17 kbps → 一小時約 7.6MB,
+  /// 足以用通訊軟體傳送。辨識品質不受影響 —— 上傳給 server 的是**未壓縮原檔**,
+  /// 壓縮只用於本機保存、分享與存檔(見 lib/services/audio_import.dart)。
   private static func exportToM4a(
     src: String, dst: String, bitRate: Int, result: @escaping FlutterResult
   ) {
-    // 診斷輸出:先前三次壓縮相關的閃退都無跡可循(Swift 端沒有任何 log),
-    // 只能靠猜。這些訊息會出現在 Xcode console 與裝置 log,用來定位崩潰點。
     func log(_ msg: String) { NSLog("[audio_convert] %@", msg) }
 
     let srcURL = URL(fileURLWithPath: src)
     let dstURL = URL(fileURLWithPath: dst)
     let srcSize =
-      (try? FileManager.default.attributesOfItem(atPath: src)[.size] as? Int) ?? nil
-    log("begin src=\(srcURL.lastPathComponent) size=\(srcSize ?? -1) bitRate=\(bitRate)")
+      ((try? FileManager.default.attributesOfItem(atPath: src)[.size]) as? Int) ?? -1
+    log("begin src=\(srcURL.lastPathComponent) size=\(srcSize)")
     try? FileManager.default.removeItem(at: dstURL)
 
-    let asset = AVURLAsset(url: srcURL)
-    // 取來源的取樣率/聲道數以維持不變(用 AVAudioFile 讀,比從
-    // CMFormatDescription 取更直接 —— 後者是 CoreFoundation 型別,轉型會被
-    // Swift 視為恆成立而編譯失敗)。
-    guard let track = asset.tracks(withMediaType: .audio).first else {
-      log("no audio track")
+    guard
+      let session = AVAssetExportSession(
+        asset: AVURLAsset(url: srcURL), presetName: AVAssetExportPresetAppleM4A)
+    else {
+      log("cannot create export session")
       result(false)
       return
     }
-    guard let srcFormat = try? AVAudioFile(forReading: srcURL).fileFormat else {
-      log("cannot read source format")
-      result(false)
-      return
-    }
-    log("format sr=\(srcFormat.sampleRate) ch=\(srcFormat.channelCount)")
-
-    do {
-      let reader = try AVAssetReader(asset: asset)
-      let readerOutput = AVAssetReaderTrackOutput(
-        track: track,
-        outputSettings: [
-          AVFormatIDKey: kAudioFormatLinearPCM,
-          AVLinearPCMBitDepthKey: 16,
-          AVLinearPCMIsFloatKey: false,
-          AVLinearPCMIsBigEndianKey: false,
-          AVLinearPCMIsNonInterleaved: false,
-        ])
-      reader.add(readerOutput)
-
-      let writer = try AVAssetWriter(outputURL: dstURL, fileType: .m4a)
-      // 維持來源的取樣率與聲道數(本 App 錄音為 16kHz mono),只改編碼與位元率。
-      let writerInput = AVAssetWriterInput(
-        mediaType: .audio,
-        outputSettings: [
-          AVFormatIDKey: kAudioFormatMPEG4AAC,
-          AVSampleRateKey: srcFormat.sampleRate,
-          AVNumberOfChannelsKey: Int(srcFormat.channelCount),
-          AVEncoderBitRateKey: bitRate,
-        ])
-      writerInput.expectsMediaDataInRealTime = false
-      writer.add(writerInput)
-
-      guard reader.startReading() else {
-        log("reader.startReading failed: \(String(describing: reader.error))")
-        result(false)
-        return
-      }
-      guard writer.startWriting() else {
-        log("writer.startWriting failed: \(String(describing: writer.error))")
-        result(false)
-        return
-      }
-      // **必要**:AVAssetWriter 的流程是 startWriting → startSession → append。
-      // 少了這步,append 會丟出 NSInternalInconsistencyException
-      // (「Must start a session」)—— 那是 Objective-C exception,Swift 無法 catch,
-      // 會直接終止 App。先前壓縮一按就閃退就是這個原因。
-      writer.startSession(atSourceTime: .zero)
-      log("started")
-
-      // requestMediaDataWhenReady 的 block 會被**重複呼叫**(每次可再收資料時)。
-      // FlutterResult 只能呼叫一次,呼叫第二次會直接 crash —— 先前沒有防護,
-      // 導致壓縮開始後很快就閃退(實測表現為「按上傳馬上閃退」)。
-      // 這些回呼都在同一個 serial queue 上執行,故用單純的旗標即可。
-      let queue = DispatchQueue(label: "app.audio.convert")
-      var completed = false
-      func finish(_ ok: Bool) {
-        guard !completed else { return }
-        completed = true
-        DispatchQueue.main.async { result(ok) } // MethodChannel 要求回主執行緒
-      }
-
-      writerInput.requestMediaDataWhenReady(on: queue) {
-        if completed { return }
-        while writerInput.isReadyForMoreMediaData {
-          guard let sample = readerOutput.copyNextSampleBuffer() else {
-            // 來源讀完:收尾。標記與 finishWriting 只能各做一次。
-            if completed { return }
-            completed = true
-            writerInput.markAsFinished()
-            writer.finishWriting {
-              let ok = writer.status == .completed
-              log("finished ok=\(ok) status=\(writer.status.rawValue) "
-                + "err=\(String(describing: writer.error))")
-              DispatchQueue.main.async { result(ok) }
-            }
-            return
-          }
-          if !writerInput.append(sample) {
-            log("append failed: \(String(describing: writer.error))")
-            writerInput.markAsFinished()
-            writer.cancelWriting()
-            finish(false)
-            return
-          }
-        }
-      }
-    } catch {
-      log("exception: \(error)")
-      result(false)
+    session.outputURL = dstURL
+    session.outputFileType = .m4a
+    session.exportAsynchronously {
+      let ok = session.status == .completed
+      let outSize =
+        ((try? FileManager.default.attributesOfItem(atPath: dst)[.size]) as? Int) ?? -1
+      log("finished ok=\(ok) status=\(session.status.rawValue) out=\(outSize) "
+        + "err=\(String(describing: session.error))")
+      // completion 只會被呼叫一次;回主執行緒回覆 Flutter。
+      DispatchQueue.main.async { result(ok) }
     }
   }
 }

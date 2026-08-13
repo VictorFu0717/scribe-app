@@ -29,7 +29,7 @@ Future<String> _importAudioFile(WidgetRef ref, String path) async {
 
   // 1) 先把檔案複製到本機 —— iOS 選檔回傳的是 security-scoped 路徑,
   //    上傳大檔耗時數分鐘後可能已失去存取權。
-  var localCopy = await _copyToDocuments(path, meeting.id);
+  final localCopy = await _copyToDocuments(path, meeting.id);
 
   // 2) 複製完**立刻**記錄路徑,不等上傳與壓縮。
   //    先前把 save 放在最後,結果 App 在上傳途中被 iOS 因記憶體壓力終止,
@@ -38,19 +38,20 @@ Future<String> _importAudioFile(WidgetRef ref, String path) async {
     await store.save(meeting.id, localCopy);
   }
 
-  // 3) 是未壓縮 WAV 就先壓成 m4a 再上傳:一小時 110MB → 約 28MB。
-  //    這麼做是為了讓上傳能完成 —— 上百 MB 的上傳在手機上很容易因耗時過久、
-  //    記憶體壓力而被系統中斷。64kbps 對辨識準確度影響很小(遠離會明顯劣化的
-  //    16kbps 區間),用一點品質換上傳成功率是值得的。
+  // 3) 上傳**未壓縮原檔**,辨識品質優先。
+  //    先前為了避免上傳中斷而改成壓縮後上傳,但後來確認那些中斷的真因是壓縮本身
+  //    會崩潰(見 AudioConvert),而非上傳量 —— 使用者實測「重新轉錄」上傳同樣的
+  //    110MB 原檔是可以成功的。
+  await backend.uploadAudio(meeting.id, localCopy ?? path, config: config);
+
+  // 4) 上傳完成後才壓縮本機副本(一小時 110MB → 約 8MB),省空間並便於分享。
+  //    失敗也無妨:記錄仍指向原檔,播放與分享照常。
   if (localCopy != null && await AudioConvert.isWav(localCopy)) {
     final compressed = await AudioConvert.wavToM4a(localCopy);
     if (compressed != null) {
-      localCopy = compressed;
       await store.save(meeting.id, compressed);
     }
   }
-
-  await backend.uploadAudio(meeting.id, localCopy ?? path, config: config);
 
   ref.invalidate(meetingsListProvider);
   return meeting.id;
