@@ -184,20 +184,32 @@ import UIKit
   private static func exportToM4a(
     src: String, dst: String, bitRate: Int, result: @escaping FlutterResult
   ) {
+    // 診斷輸出:先前三次壓縮相關的閃退都無跡可循(Swift 端沒有任何 log),
+    // 只能靠猜。這些訊息會出現在 Xcode console 與裝置 log,用來定位崩潰點。
+    func log(_ msg: String) { NSLog("[audio_convert] %@", msg) }
+
     let srcURL = URL(fileURLWithPath: src)
     let dstURL = URL(fileURLWithPath: dst)
+    let srcSize =
+      (try? FileManager.default.attributesOfItem(atPath: src)[.size] as? Int) ?? nil
+    log("begin src=\(srcURL.lastPathComponent) size=\(srcSize ?? -1) bitRate=\(bitRate)")
     try? FileManager.default.removeItem(at: dstURL)
 
     let asset = AVURLAsset(url: srcURL)
     // 取來源的取樣率/聲道數以維持不變(用 AVAudioFile 讀,比從
     // CMFormatDescription 取更直接 —— 後者是 CoreFoundation 型別,轉型會被
     // Swift 視為恆成立而編譯失敗)。
-    guard let track = asset.tracks(withMediaType: .audio).first,
-      let srcFormat = try? AVAudioFile(forReading: srcURL).fileFormat
-    else {
+    guard let track = asset.tracks(withMediaType: .audio).first else {
+      log("no audio track")
       result(false)
       return
     }
+    guard let srcFormat = try? AVAudioFile(forReading: srcURL).fileFormat else {
+      log("cannot read source format")
+      result(false)
+      return
+    }
+    log("format sr=\(srcFormat.sampleRate) ch=\(srcFormat.channelCount)")
 
     do {
       let reader = try AVAssetReader(asset: asset)
@@ -225,10 +237,22 @@ import UIKit
       writerInput.expectsMediaDataInRealTime = false
       writer.add(writerInput)
 
-      guard reader.startReading(), writer.startWriting() else {
+      guard reader.startReading() else {
+        log("reader.startReading failed: \(String(describing: reader.error))")
         result(false)
         return
       }
+      guard writer.startWriting() else {
+        log("writer.startWriting failed: \(String(describing: writer.error))")
+        result(false)
+        return
+      }
+      // **必要**:AVAssetWriter 的流程是 startWriting → startSession → append。
+      // 少了這步,append 會丟出 NSInternalInconsistencyException
+      // (「Must start a session」)—— 那是 Objective-C exception,Swift 無法 catch,
+      // 會直接終止 App。先前壓縮一按就閃退就是這個原因。
+      writer.startSession(atSourceTime: .zero)
+      log("started")
 
       // requestMediaDataWhenReady 的 block 會被**重複呼叫**(每次可再收資料時)。
       // FlutterResult 只能呼叫一次,呼叫第二次會直接 crash —— 先前沒有防護,
@@ -252,11 +276,14 @@ import UIKit
             writerInput.markAsFinished()
             writer.finishWriting {
               let ok = writer.status == .completed
+              log("finished ok=\(ok) status=\(writer.status.rawValue) "
+                + "err=\(String(describing: writer.error))")
               DispatchQueue.main.async { result(ok) }
             }
             return
           }
           if !writerInput.append(sample) {
+            log("append failed: \(String(describing: writer.error))")
             writerInput.markAsFinished()
             writer.cancelWriting()
             finish(false)
@@ -265,6 +292,7 @@ import UIKit
         }
       }
     } catch {
+      log("exception: \(error)")
       result(false)
     }
   }
