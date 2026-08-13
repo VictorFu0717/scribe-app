@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/api_exception.dart';
 import '../models/transcript_segment.dart';
-import '../services/audio_convert.dart';
 import '../services/audio_session_config.dart';
 import '../services/keep_awake.dart';
 import '../services/on_device_translator.dart';
@@ -280,14 +279,12 @@ class RecordingController extends Notifier<RecordingState> {
 
     // 本地保存錄音檔(供播放/分享/斷線後補轉錄)。
     //
-    // 先壓成 m4a:一小時的 WAV 約 110MB —— 佔手機空間,而且大到無法用 LINE 等
-    // 通訊軟體傳送(實測 15 秒可傳、一小時不行)。AAC 後約 9MB。
-    // 轉檔失敗則沿用 WAV,不讓使用者的錄音因此遺失。
+    // 這裡**只記錄路徑,不做壓縮**:壓縮是耗時的原生工作,一旦失敗就會連帶影響
+    // 收尾流程 —— 實測曾出現「按下停止直接閃退」。錄音是使用者最重要的資料,
+    // 收尾必須簡單可靠。壓縮延後到真正需要小檔時(分享、存到手機、上傳補轉錄)
+    // 才做,那時失敗也只影響該次操作,錄音本身不受影響。
     if (meetingId != null && wavPath != null) {
-      final compressed = await AudioConvert.wavToM4a(wavPath);
-      await ref
-          .read(localRecordingStoreProvider)
-          .save(meetingId, compressed ?? wavPath);
+      await ref.read(localRecordingStoreProvider).save(meetingId, wavPath);
     }
 
     // 記住這場會議的翻譯設定(是否翻譯 + 方向)。全域設定之後可能改成別的方向,
