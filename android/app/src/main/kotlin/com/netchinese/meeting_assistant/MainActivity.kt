@@ -70,20 +70,21 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        // WAV → m4a(AAC):一小時 WAV 約 110MB,轉檔後約 9MB,才傳得出去。
+        // WAV → m4a(AAC 64kbps):一小時 WAV 約 110MB,轉檔後約 28MB,才傳得出去。
         // 見 lib/services/audio_convert.dart。
         MethodChannel(messenger, "app/audio_convert")
             .setMethodCallHandler { call, result ->
                 if (call.method == "wavToM4a") {
                     val src = call.argument<String>("src")
                     val dst = call.argument<String>("dst")
+                    val bitRate = call.argument<Int>("bitRate") ?: 64_000
                     if (src == null || dst == null) {
                         result.success(false)
                     } else {
                         // 編碼是耗時工作,不可佔用主執行緒。
                         Thread {
                             val ok = try {
-                                WavToAac.convert(src, dst)
+                                WavToAac.convert(src, dst, bitRate)
                             } catch (e: Exception) {
                                 false
                             }

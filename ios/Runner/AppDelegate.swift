@@ -110,7 +110,7 @@ import UIKit
     }
     incomingFileChannel = incoming
 
-    // WAV → m4a(AAC):一小時 WAV 約 110MB,轉檔後約 9MB,才傳得出去。
+    // WAV → m4a(AAC 64kbps):一小時 WAV 約 110MB,轉檔後約 28MB,才傳得出去。
     // 見 lib/services/audio_convert.dart。
     let convert = FlutterMethodChannel(
       name: "app/audio_convert", binaryMessenger: messenger)
@@ -123,37 +123,91 @@ import UIKit
         result(FlutterMethodNotImplemented)
         return
       }
-      AppDelegate.exportToM4a(src: src, dst: dst, result: result)
+      // 位元率由 Dart 端指定,兩平台一致(見 lib/services/audio_convert.dart)。
+      let bitRate = (args["bitRate"] as? Int) ?? 64_000
+      AppDelegate.exportToM4a(src: src, dst: dst, bitRate: bitRate, result: result)
     }
     audioConvertChannel = convert
   }
 
-  /// 用 AVFoundation 把 WAV 轉成 m4a(AAC)。
+  /// 用 AVFoundation 把 WAV 轉成 m4a(AAC),**明確指定位元率**。
   ///
-  /// 用 AppleM4A preset:它會依原始取樣率/聲道自動選合適位元率 ——
-  /// 實測 16kHz mono 的結果約為 WAV 的 1/12,不需要手動指定位元率。
+  /// 不用 AVAssetExportSession + AppleM4A preset:那個 preset 的位元率由系統決定、
+  /// 無法控制,實測同款編碼器的自動值僅約 21kbps。研究指出 16kbps 級別的壓縮會使
+  /// ASR 的 WER 相對劣化約 12.6%,而本機檔案會用於「斷線後重新轉錄」——
+  /// 那正是最需要準確度的場合。故改用 AVAssetReader/Writer 固定 64kbps
+  /// (與 Android 一致;16kHz 單聲道語音為 4:1 壓縮,一小時約 28MB 仍便於傳送)。
   private static func exportToM4a(
-    src: String, dst: String, result: @escaping FlutterResult
+    src: String, dst: String, bitRate: Int, result: @escaping FlutterResult
   ) {
     let srcURL = URL(fileURLWithPath: src)
     let dstURL = URL(fileURLWithPath: dst)
-    try? FileManager.default.removeItem(at: dstURL) // 匯出目標必須不存在
+    try? FileManager.default.removeItem(at: dstURL)
 
     let asset = AVURLAsset(url: srcURL)
-    guard
-      let session = AVAssetExportSession(
-        asset: asset, presetName: AVAssetExportPresetAppleM4A)
+    // 取來源的取樣率/聲道數以維持不變(用 AVAudioFile 讀,比從
+    // CMFormatDescription 取更直接 —— 後者是 CoreFoundation 型別,轉型會被
+    // Swift 視為恆成立而編譯失敗)。
+    guard let track = asset.tracks(withMediaType: .audio).first,
+      let srcFormat = try? AVAudioFile(forReading: srcURL).fileFormat
     else {
       result(false)
       return
     }
-    session.outputURL = dstURL
-    session.outputFileType = .m4a
-    session.exportAsynchronously {
-      // 回到主執行緒回覆 Flutter(MethodChannel 要求)。
-      DispatchQueue.main.async {
-        result(session.status == .completed)
+
+    do {
+      let reader = try AVAssetReader(asset: asset)
+      let readerOutput = AVAssetReaderTrackOutput(
+        track: track,
+        outputSettings: [
+          AVFormatIDKey: kAudioFormatLinearPCM,
+          AVLinearPCMBitDepthKey: 16,
+          AVLinearPCMIsFloatKey: false,
+          AVLinearPCMIsBigEndianKey: false,
+          AVLinearPCMIsNonInterleaved: false,
+        ])
+      reader.add(readerOutput)
+
+      let writer = try AVAssetWriter(outputURL: dstURL, fileType: .m4a)
+      // 維持來源的取樣率與聲道數(本 App 錄音為 16kHz mono),只改編碼與位元率。
+      let writerInput = AVAssetWriterInput(
+        mediaType: .audio,
+        outputSettings: [
+          AVFormatIDKey: kAudioFormatMPEG4AAC,
+          AVSampleRateKey: srcFormat.sampleRate,
+          AVNumberOfChannelsKey: Int(srcFormat.channelCount),
+          AVEncoderBitRateKey: bitRate,
+        ])
+      writerInput.expectsMediaDataInRealTime = false
+      writer.add(writerInput)
+
+      guard reader.startReading(), writer.startWriting() else {
+        result(false)
+        return
       }
+
+      let queue = DispatchQueue(label: "app.audio.convert")
+      writerInput.requestMediaDataWhenReady(on: queue) {
+        while writerInput.isReadyForMoreMediaData {
+          guard let sample = readerOutput.copyNextSampleBuffer() else {
+            writerInput.markAsFinished()
+            writer.finishWriting {
+              let ok = writer.status == .completed && reader.status == .completed
+              // 回到主執行緒回覆 Flutter(MethodChannel 要求)。
+              DispatchQueue.main.async { result(ok) }
+            }
+            return
+          }
+          if !writerInput.append(sample) {
+            writerInput.markAsFinished()
+            writer.cancelWriting()
+            DispatchQueue.main.async { result(false) }
+            return
+          }
+        }
+      }
+    } catch {
+      result(false)
     }
   }
 }

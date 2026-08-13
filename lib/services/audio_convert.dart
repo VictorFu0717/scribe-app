@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 ///
 /// 為什麼需要:錄音為 16kHz/mono/16-bit PCM,一小時的 WAV 約 **110MB** ——
 /// 佔手機空間,而且大到無法用 LINE 等通訊軟體傳送(實測 15 秒可傳、一小時不行)。
-/// 同樣內容轉成 AAC 只需約 **9MB**(實測壓縮約 12 倍),音質對語音而言足夠。
+/// 同樣內容轉成 AAC 約 **28MB**(64kbps),仍便於用通訊軟體傳送。
 ///
 /// 用各平台原生編碼器(iOS AVFoundation / Android MediaCodec)而不引入
 /// ffmpeg 之類的套件:體積小、無額外原生編譯風險(本專案已多次因 plugin 受阻)。
@@ -14,6 +14,14 @@ class AudioConvert {
   AudioConvert._();
 
   static const MethodChannel _channel = MethodChannel('app/audio_convert');
+
+  /// AAC 位元率。
+  ///
+  /// 不用更低的值(例如系統自動選的 ~21kbps):本機檔案會用於「斷線後重新轉錄」,
+  /// 而研究指出 16kbps 級別的壓縮會使 ASR 的 WER 相對劣化約 12.6%。
+  /// 64kbps 對 16kHz 單聲道語音是 4:1 壓縮,一小時約 28MB 仍便於傳送,
+  /// 且兩平台採同一設定以避免辨識品質不一致。
+  static const int _bitRate = 64000;
 
   /// 將 [wavPath] 轉為同目錄的 `.m4a`,成功回傳新路徑,失敗回 null。
   ///
@@ -28,6 +36,7 @@ class AudioConvert {
       final ok = await _channel.invokeMethod<bool>('wavToM4a', {
             'src': wavPath,
             'dst': dst,
+            'bitRate': _bitRate,
           }) ??
           false;
       if (!ok || !File(dst).existsSync()) return null;

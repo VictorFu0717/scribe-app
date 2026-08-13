@@ -16,10 +16,14 @@ import java.io.FileInputStream
  * 用系統 MediaCodec/MediaMuxer 而非引入 ffmpeg:無額外原生依賴與編譯風險。
  */
 object WavToAac {
-    private const val BIT_RATE = 64_000 // 語音夠用;16kHz mono 實際輸出更小
     private const val TIMEOUT_US = 10_000L
 
-    fun convert(srcPath: String, dstPath: String): Boolean {
+    /**
+     * @param bitRate AAC 位元率,由 Dart 端指定以確保兩平台一致
+     *   (見 lib/services/audio_convert.dart:選 64kbps 是為了避免低位元率
+     *   影響「斷線後重新轉錄」的辨識準確度)。
+     */
+    fun convert(srcPath: String, dstPath: String, bitRate: Int = 64_000): Boolean {
         val src = File(srcPath)
         if (!src.exists()) return false
         File(dstPath).delete()
@@ -36,7 +40,7 @@ object WavToAac {
                     MediaFormat.KEY_AAC_PROFILE,
                     MediaCodecInfo.CodecProfileLevel.AACObjectLC
                 )
-                setInteger(MediaFormat.KEY_BIT_RATE, BIT_RATE)
+                setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
             }
 
             val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
