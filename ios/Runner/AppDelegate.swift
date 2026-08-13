@@ -8,6 +8,12 @@ import UIKit
   private var keepAwakeChannel: FlutterMethodChannel?
   private var incomingFileChannel: FlutterMethodChannel?
   private var audioConvertChannel: FlutterMethodChannel?
+  private var backgroundTaskChannel: FlutterMethodChannel?
+
+  /// 進行中的 background task assertion(見 lib/services/background_task.dart)。
+  /// 上傳大檔可能耗時數分鐘,期間 App 若離開前景會被 iOS 暫停而中斷上傳。
+  private var backgroundTasks: [Int: UIBackgroundTaskIdentifier] = [:]
+  private var nextBackgroundTaskToken = 1
 
   /// 從其他 App 分享/開啟進來、等待 Dart 端取走的音檔路徑。
   /// 冷啟動時 Dart 尚未就緒,故先暫存,由 Dart 主動來取(見 lib/services/incoming_file.dart)。
@@ -128,6 +134,44 @@ import UIKit
       AppDelegate.exportToM4a(src: src, dst: dst, bitRate: bitRate, result: result)
     }
     audioConvertChannel = convert
+
+    // 延長執行時間(上傳大檔期間避免被系統暫停)。
+    let background = FlutterMethodChannel(
+      name: "app/background_task", binaryMessenger: messenger)
+    background.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result(nil)
+        return
+      }
+      switch call.method {
+      case "begin":
+        let token = self.nextBackgroundTaskToken
+        self.nextBackgroundTaskToken += 1
+        let id = UIApplication.shared.beginBackgroundTask(withName: "upload") {
+          // 系統時間用盡:必須自行結束,否則 App 會被強制終止。
+          self.endBackgroundTask(token)
+        }
+        if id == .invalid {
+          result(nil)
+        } else {
+          self.backgroundTasks[token] = id
+          result(token)
+        }
+      case "end":
+        if let token = (call.arguments as? [String: Any])?["token"] as? Int {
+          self.endBackgroundTask(token)
+        }
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+    backgroundTaskChannel = background
+  }
+
+  private func endBackgroundTask(_ token: Int) {
+    guard let id = backgroundTasks.removeValue(forKey: token) else { return }
+    UIApplication.shared.endBackgroundTask(id)
   }
 
   /// 用 AVFoundation 把 WAV 轉成 m4a(AAC),**明確指定位元率**。
