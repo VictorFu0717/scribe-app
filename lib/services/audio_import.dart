@@ -42,7 +42,7 @@ Future<String> _importAudioFile(WidgetRef ref, String path) async {
   //    這麼做是為了讓上傳能完成 —— 上百 MB 的上傳在手機上很容易因耗時過久、
   //    記憶體壓力而被系統中斷。64kbps 對辨識準確度影響很小(遠離會明顯劣化的
   //    16kbps 區間),用一點品質換上傳成功率是值得的。
-  if (localCopy != null && localCopy.toLowerCase().endsWith('.wav')) {
+  if (localCopy != null && await AudioConvert.isWav(localCopy)) {
     final compressed = await AudioConvert.wavToM4a(localCopy);
     if (compressed != null) {
       localCopy = compressed;

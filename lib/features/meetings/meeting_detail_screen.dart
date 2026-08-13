@@ -505,7 +505,7 @@ class _ShareAudioButtonState extends ConsumerState<_ShareAudioButton> {
       // WAV 太大送不出去(一小時約 110MB,實測 LINE 無法傳送)→ 先壓成 m4a(約 9MB)。
       // 轉檔成功就更新本機記錄並刪掉 WAV,之後播放/分享都用小檔,也省下手機空間。
       // 舊錄音是 WAV,故這裡處理才能讓既有檔案也受益(新錄音在停止時已壓縮)。
-      if (path.toLowerCase().endsWith('.wav')) {
+      if (await AudioConvert.isWav(path)) {
         final converted = await AudioConvert.wavToM4a(path);
         if (converted != null) {
           path = converted;
@@ -641,7 +641,7 @@ class _SaveAudioButtonState extends ConsumerState<_SaveAudioButton> {
     setState(() => _busy = true);
     try {
       // 與分享一致:WAV 太大(一小時約 110MB)先壓成 m4a,並更新本機記錄。
-      if (path.toLowerCase().endsWith('.wav')) {
+      if (await AudioConvert.isWav(path)) {
         final converted = await AudioConvert.wavToM4a(path);
         if (converted != null) {
           path = converted;
