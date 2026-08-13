@@ -118,15 +118,26 @@ class _UploadingDialog extends StatelessWidget {
   const _UploadingDialog();
   @override
   Widget build(BuildContext context) {
-    return const AlertDialog(
-      content: Row(
+    return AlertDialog(
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2.5)),
-          SizedBox(width: 16),
-          Expanded(child: Text('上傳中…')),
+          const Row(
+            children: [
+              SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2.5)),
+              SizedBox(width: 16),
+              Expanded(child: Text('處理並上傳中…')),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // 長檔案要壓縮 + 上傳,可能一兩分鐘。切走 App 會被系統暫停而中斷。
+          Text('長時間的錄音需要壓縮與上傳,請暫時不要切換到其他 App。',
+              style: TextStyle(
+                  fontSize: 12.5,
+                  color: Theme.of(context).colorScheme.outline)),
         ],
       ),
     );
