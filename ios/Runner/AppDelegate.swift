@@ -230,14 +230,28 @@ import UIKit
         return
       }
 
+      // requestMediaDataWhenReady 的 block 會被**重複呼叫**(每次可再收資料時)。
+      // FlutterResult 只能呼叫一次,呼叫第二次會直接 crash —— 先前沒有防護,
+      // 導致壓縮開始後很快就閃退(實測表現為「按上傳馬上閃退」)。
+      // 這些回呼都在同一個 serial queue 上執行,故用單純的旗標即可。
       let queue = DispatchQueue(label: "app.audio.convert")
+      var completed = false
+      func finish(_ ok: Bool) {
+        guard !completed else { return }
+        completed = true
+        DispatchQueue.main.async { result(ok) } // MethodChannel 要求回主執行緒
+      }
+
       writerInput.requestMediaDataWhenReady(on: queue) {
+        if completed { return }
         while writerInput.isReadyForMoreMediaData {
           guard let sample = readerOutput.copyNextSampleBuffer() else {
+            // 來源讀完:收尾。標記與 finishWriting 只能各做一次。
+            if completed { return }
+            completed = true
             writerInput.markAsFinished()
             writer.finishWriting {
-              let ok = writer.status == .completed && reader.status == .completed
-              // 回到主執行緒回覆 Flutter(MethodChannel 要求)。
+              let ok = writer.status == .completed
               DispatchQueue.main.async { result(ok) }
             }
             return
@@ -245,7 +259,7 @@ import UIKit
           if !writerInput.append(sample) {
             writerInput.markAsFinished()
             writer.cancelWriting()
-            DispatchQueue.main.async { result(false) }
+            finish(false)
             return
           }
         }

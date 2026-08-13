@@ -16,6 +16,7 @@ import '../../providers/transcript_translation_controller.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
 import '../../services/audio_convert.dart';
+import '../../services/background_task.dart';
 import '../../services/save_to_device.dart';
 import '../../services/export_service.dart';
 import '../../widgets/audio_player_bar.dart';
@@ -252,6 +253,11 @@ class _TranscriptTab extends ConsumerWidget {
                 .read(transcriptTranslationProvider(meeting.id).notifier)
                 .ensureTranslated(segments);
           });
+        }
+
+        // 沒有逐字稿但本機有音檔 → 上傳/轉錄曾失敗。提供重試,不必重新選檔。
+        if (segments.isEmpty && !busy && localPath != null) {
+          return _RetranscribeView(meeting: meeting, audioPath: localPath);
         }
 
         final view = RefreshIndicator(
@@ -514,6 +520,85 @@ class _ShareAudioButtonState extends ConsumerState<_ShareAudioButton> {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('分享失敗:$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+}
+
+/// 有本機錄音卻沒有逐字稿時的補救畫面(上傳或轉錄曾中斷)。
+///
+/// 直接用本機那份音檔重新送去轉錄,使用者不必重新選檔,也不會失去這場會議。
+class _RetranscribeView extends ConsumerStatefulWidget {
+  const _RetranscribeView({required this.meeting, required this.audioPath});
+  final Meeting meeting;
+  final String audioPath;
+
+  @override
+  ConsumerState<_RetranscribeView> createState() => _RetranscribeViewState();
+}
+
+class _RetranscribeViewState extends ConsumerState<_RetranscribeView> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_upload_outlined, size: 34, color: scheme.outline),
+            const SizedBox(height: 14),
+            const Text('這場會議還沒有逐字稿',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Text('錄音檔已存在手機上,可以重新送去轉錄。',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: scheme.outline)),
+            const SizedBox(height: 18),
+            if (_busy)
+              const Column(children: [
+                SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 3)),
+                SizedBox(height: 10),
+                Text('上傳中…請暫時不要切換到其他 App',
+                    style: TextStyle(fontSize: 12.5)),
+              ])
+            else
+              FilledButton.icon(
+                onPressed: _retranscribe,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('重新轉錄'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _retranscribe() async {
+    setState(() => _busy = true);
+    try {
+      await BackgroundTask.run(() => ref.read(backendProvider).uploadAudio(
+            widget.meeting.id,
+            widget.audioPath,
+            config: ref.read(transcriptionConfigProvider),
+          ));
+      if (!mounted) return;
+      // 重新拉狀態與逐字稿(server 會轉為處理中,詳情頁本身會輪詢)。
+      ref.invalidate(meetingProvider(widget.meeting.id));
+      ref.invalidate(transcriptProvider(widget.meeting.id));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(e is ApiException ? e.message : '重新轉錄失敗:$e')));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
