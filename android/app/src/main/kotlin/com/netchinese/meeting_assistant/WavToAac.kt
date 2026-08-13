@@ -19,11 +19,12 @@ object WavToAac {
     private const val TIMEOUT_US = 10_000L
 
     /**
-     * @param bitRate AAC 位元率,由 Dart 端指定以確保兩平台一致
-     *   (見 lib/services/audio_convert.dart:選 64kbps 是為了避免低位元率
-     *   影響「斷線後重新轉錄」的辨識準確度)。
+     * @param bitRate AAC 位元率,由 Dart 端指定(會依序嘗試 48k/32k/24k)。
+     *   AAC 對低取樣率有位元率上限,超過會整個編碼失敗 —— 實測 16kHz 單聲道
+     *   最高約 48000(實際輸出約 31.5kbps),64000 不支援。見
+     *   lib/services/audio_convert.dart。
      */
-    fun convert(srcPath: String, dstPath: String, bitRate: Int = 64_000): Boolean {
+    fun convert(srcPath: String, dstPath: String, bitRate: Int = 48_000): Boolean {
         val src = File(srcPath)
         if (!src.exists()) return false
         File(dstPath).delete()

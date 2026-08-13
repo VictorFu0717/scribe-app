@@ -512,6 +512,10 @@ class _ShareAudioButtonState extends ConsumerState<_ShareAudioButton> {
           await ref
               .read(localRecordingStoreProvider)
               .save(widget.meeting.id, converted);
+        } else if (mounted) {
+          // 不要靜默 —— 先前壓縮一直失敗卻照樣傳原檔,看起來像功能沒作用。
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('壓縮失敗,將傳送原始檔案(檔案較大)')));
         }
       }
       await ExportService.exportAudio(widget.meeting, path,

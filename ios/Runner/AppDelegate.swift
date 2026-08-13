@@ -130,7 +130,7 @@ import UIKit
         return
       }
       // 位元率由 Dart 端指定,兩平台一致(見 lib/services/audio_convert.dart)。
-      let bitRate = (args["bitRate"] as? Int) ?? 64_000
+      let bitRate = (args["bitRate"] as? Int) ?? 48_000
       AppDelegate.exportToM4a(src: src, dst: dst, bitRate: bitRate, result: result)
     }
     audioConvertChannel = convert

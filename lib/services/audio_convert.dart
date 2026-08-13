@@ -15,13 +15,17 @@ class AudioConvert {
 
   static const MethodChannel _channel = MethodChannel('app/audio_convert');
 
-  /// AAC 位元率。
+  /// 依序嘗試的 AAC 位元率(高品質優先,不支援就降階)。
   ///
-  /// 不用更低的值(例如系統自動選的 ~21kbps):本機檔案會用於「斷線後重新轉錄」,
-  /// 而研究指出 16kbps 級別的壓縮會使 ASR 的 WER 相對劣化約 12.6%。
-  /// 64kbps 對 16kHz 單聲道語音是 4:1 壓縮,一小時約 28MB 仍便於傳送,
-  /// 且兩平台採同一設定以避免辨識品質不一致。
-  static const int _bitRate = 64000;
+  /// 為什麼要降階:AAC 對低取樣率的位元率有上限,超過就**整個編碼失敗**。
+  /// 實測 16kHz 單聲道(本 App 的錄音格式):48000 可用(實際輸出約 31.5kbps,
+  /// 一小時約 13.5MB),而先前設的 **64000 完全不支援** ——
+  /// 編碼器回 "The encoding parameters are not supported",轉檔一直靜默失敗,
+  /// 所以分享出去的檔案始終沒被壓縮。
+  ///
+  /// 取可用範圍內最高者:研究指出 16kbps 級別的壓縮會使 ASR 的 WER 相對劣化
+  /// 約 12.6%,而本機檔案會用於重新轉錄,品質不宜太低。
+  static const List<int> _bitRates = [48000, 32000, 24000];
 
   /// 這個檔案是否為未壓縮的 WAV。
   ///
@@ -55,12 +59,18 @@ class AudioConvert {
     final dst = '$base.m4a';
     if (dst == wavPath) return null; // 來源本來就叫 .m4a,不覆蓋自己
     try {
-      final ok = await _channel.invokeMethod<bool>('wavToM4a', {
-            'src': wavPath,
-            'dst': dst,
-            'bitRate': _bitRate,
-          }) ??
-          false;
+      var ok = false;
+      // 逐一嘗試:不同來源格式(取樣率/聲道)能接受的上限不同。
+      for (final bitRate in _bitRates) {
+        ok = await _channel.invokeMethod<bool>('wavToM4a', {
+              'src': wavPath,
+              'dst': dst,
+              'bitRate': bitRate,
+            }) ??
+            false;
+        if (ok && File(dst).existsSync() && File(dst).lengthSync() > 0) break;
+        ok = false;
+      }
       if (!ok || !File(dst).existsSync()) return null;
       if (deleteSource) {
         try {

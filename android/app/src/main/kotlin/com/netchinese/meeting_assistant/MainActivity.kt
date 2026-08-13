@@ -77,7 +77,7 @@ class MainActivity : FlutterActivity() {
                 if (call.method == "wavToM4a") {
                     val src = call.argument<String>("src")
                     val dst = call.argument<String>("dst")
-                    val bitRate = call.argument<Int>("bitRate") ?: 64_000
+                    val bitRate = call.argument<Int>("bitRate") ?: 48_000
                     if (src == null || dst == null) {
                         result.success(false)
                     } else {
