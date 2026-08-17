@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/io.dart';
@@ -511,7 +512,13 @@ class _HttpTranscriptionSession implements TranscriptionSession {
     if (!_linkState.isClosed) _linkState.add(s);
   }
 
+  /// 是否正在進行一次連線嘗試。防止重入 —— 連線是 await 的,期間若又觸發
+  /// 重連就會有兩條連線同時建立。
+  bool _connecting = false;
+
   Future<void> _connect() async {
+    if (_closed || _connecting) return;
+    _connecting = true;
     try {
       // 讀 token 失敗(例如 keychain 暫時不可用)不應中斷轉錄,無 header 續連。
       AuthToken? token;
@@ -523,12 +530,33 @@ class _HttpTranscriptionSession implements TranscriptionSession {
         scheme: wsScheme,
         path: '${_base.path}/ws/asr',
       );
-      final channel = IOWebSocketChannel.connect(
-        uri,
+
+      // **一定要 await 到連線真的建立**。
+      //
+      // 先前用 IOWebSocketChannel.connect():它不阻塞,立刻回傳 channel 而連線在
+      // 背景進行 —— 於是飛航模式下也會一路執行到下面的 _setLink(online),把根本
+      // 沒連上的狀態當成已連上:警示紅字閃一下就消失、_attempt 被歸零害退避永遠
+      // 停在 1 秒,而且 _ready=true 讓音訊往死掉的 sink 送(既沒到 server 也沒進
+      // 緩衝,連 hadGap 都不會標記)。WebSocket.connect() 回傳 Future,失敗才會
+      // 進到下面的 catch。
+      //
+      // timeout 是為了半死的網路(VPN 沒完全斷時 connect 可能一直掛著)。
+      final socket = await WebSocket.connect(
+        uri.toString(),
         headers: {
           if (token != null) 'Authorization': token.authorizationHeader,
         },
-      );
+      ).timeout(const Duration(seconds: 15));
+
+      // await 期間使用者可能已按停止。
+      if (_closed) {
+        try {
+          await socket.close();
+        } catch (_) {}
+        return;
+      }
+
+      final channel = IOWebSocketChannel(socket);
       _channel = channel;
 
       channel.stream.listen(
@@ -560,8 +588,12 @@ class _HttpTranscriptionSession implements TranscriptionSession {
       }
       _pendingAudio.clear();
       _pendingBytes = 0;
-    } catch (e) {
+    } catch (_) {
+      // 連不上(飛航模式、VPN 斷、server 未起)—— 排程下一次重試。
+      _connecting = false;
       _handleDrop();
+    } finally {
+      _connecting = false;
     }
   }
 
@@ -687,10 +719,14 @@ class _HttpTranscriptionSession implements TranscriptionSession {
     _closed = true;
     _retryTimer?.cancel();
     try {
-      _channel?.sink.add(jsonEncode({'type': 'end'}));
-      // 等 server 回 final(所有句子定稿完成);逾時則不再等,直接關閉。
-      await _finalReceived.future
-          .timeout(const Duration(seconds: 15), onTimeout: () {});
+      // 只有真的連上才需要等收尾 —— 斷線中按停止很常見,若照樣等 final
+      // 就會卡滿 15 秒逾時才回(使用者會覺得停止鍵沒反應)。
+      if (_ready && _channel != null) {
+        _channel!.sink.add(jsonEncode({'type': 'end'}));
+        // 等 server 回 final(所有句子定稿完成);逾時則不再等,直接關閉。
+        await _finalReceived.future
+            .timeout(const Duration(seconds: 15), onTimeout: () {});
+      }
       await _channel?.sink.close();
     } catch (_) {}
     if (!_linkState.isClosed) await _linkState.close();

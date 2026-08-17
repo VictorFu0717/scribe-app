@@ -13,7 +13,6 @@ import '../../providers/service_providers.dart';
 import '../../providers/settings_controller.dart';
 import '../../providers/translation_models_controller.dart';
 import '../../routing/app_router.dart';
-import '../../services/backend.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
 import '../../widgets/level_meter.dart';
@@ -50,8 +49,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
     final st = ref.read(recordingControllerProvider);
     // 缺口的兩種來源:曾超出緩衝而丟棄音訊,或停止的當下仍處於斷線狀態
     // (那段還沒補送出去)。兩者都代表逐字稿短少,需提示可用整檔補回。
-    final incomplete =
-        st.hadGap || st.linkState == TranscriptionLinkState.reconnecting;
+    final incomplete = st.hadGap || st.droppedAt != null;
 
     final id = await ref.read(recordingControllerProvider.notifier).stop();
     if (!mounted) return;
@@ -225,8 +223,9 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
         const SizedBox(height: 8),
         // 轉錄連線中斷:**持續**顯示(先前只用一次性 SnackBar,使用者可能錄很久
         // 才發現逐字稿早已停止 —— VPN/行動網路不穩時很容易發生)。
-        if (state.linkState == TranscriptionLinkState.reconnecting)
-          _LinkWarning(droppedAt: state.droppedAt),
+        // 判斷用 droppedAt(曾掉線且尚未恢復)而非特定 linkState 值 —— 這是
+        // 「該不該警示」最直接的訊號,不會因為狀態機的中間態而讓紅字閃掉。
+        if (state.droppedAt != null) _LinkWarning(droppedAt: state.droppedAt),
         // 音訊被中斷(來電等):明確告知,並說明會自動恢復。
         if (state.interrupted)
           Padding(
