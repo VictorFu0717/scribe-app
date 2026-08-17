@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -47,8 +48,10 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
   Future<void> _stop() async {
     // 先記下是否曾斷線 —— stop() 之後 state 會被重設。
     final st = ref.read(recordingControllerProvider);
+    // 缺口的兩種來源:曾超出緩衝而丟棄音訊,或停止的當下仍處於斷線狀態
+    // (那段還沒補送出去)。兩者都代表逐字稿短少,需提示可用整檔補回。
     final incomplete =
-        st.hadGap || st.linkState == TranscriptionLinkState.failed;
+        st.hadGap || st.linkState == TranscriptionLinkState.reconnecting;
 
     final id = await ref.read(recordingControllerProvider.notifier).stop();
     if (!mounted) return;
@@ -222,29 +225,8 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
         const SizedBox(height: 8),
         // 轉錄連線中斷:**持續**顯示(先前只用一次性 SnackBar,使用者可能錄很久
         // 才發現逐字稿早已停止 —— VPN/行動網路不穩時很容易發生)。
-        if (state.linkState == TranscriptionLinkState.reconnecting ||
-            state.linkState == TranscriptionLinkState.failed)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-            child: Row(
-              children: [
-                Icon(Icons.cloud_off_rounded, size: 15, color: scheme.error),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                      state.linkState == TranscriptionLinkState.reconnecting
-                          ? '逐字稿連線中斷,正在自動重連…(錄音仍在繼續,音檔完整)'
-                          : '逐字稿連線無法恢復 —— 錄音仍在繼續且音檔完整,'
-                              '結束後可用整檔重新轉錄補回',
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: scheme.error,
-                          fontWeight: FontWeight.w600),
-                      maxLines: 3),
-                ),
-              ],
-            ),
-          ),
+        if (state.linkState == TranscriptionLinkState.reconnecting)
+          _LinkWarning(droppedAt: state.droppedAt),
         // 音訊被中斷(來電等):明確告知,並說明會自動恢復。
         if (state.interrupted)
           Padding(
@@ -563,6 +545,88 @@ class _TranslationStatusBar extends ConsumerWidget {
                 style: TextStyle(fontSize: 12, color: color),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 轉錄連線中斷的持續警示:顯示已中斷多久,並提供「重新連線」立刻重試。
+///
+/// 為什麼要顯示時長:錄音可能持續數小時,使用者需要知道逐字稿缺了多大一段
+/// (才能判斷是否值得結束後用整檔重新轉錄)。
+class _LinkWarning extends ConsumerStatefulWidget {
+  const _LinkWarning({required this.droppedAt});
+
+  final DateTime? droppedAt;
+
+  @override
+  ConsumerState<_LinkWarning> createState() => _LinkWarningState();
+}
+
+class _LinkWarningState extends ConsumerState<_LinkWarning> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    // 只為了讓「已中斷 m 分 s 秒」跳動;斷線期間才存在,不影響正常錄音。
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  String _elapsed() {
+    final from = widget.droppedAt;
+    if (from == null) return '';
+    final d = DateTime.now().difference(from);
+    if (d.inSeconds < 60) return '已中斷 ${d.inSeconds} 秒';
+    final m = d.inMinutes;
+    final sec = d.inSeconds % 60;
+    if (m < 60) return '已中斷 $m 分 $sec 秒';
+    return '已中斷 ${d.inHours} 小時 ${m % 60} 分';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final elapsed = _elapsed();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_rounded, size: 15, color: scheme.error),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+                '逐字稿連線中斷,持續嘗試重連中'
+                '${elapsed.isEmpty ? '' : '($elapsed)'}—— '
+                '錄音仍在繼續、音檔完整,結束後可用整檔重新轉錄補回',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: scheme.error,
+                    fontWeight: FontWeight.w600),
+                maxLines: 3),
+          ),
+          const SizedBox(width: 4),
+          // 不想等退避計時(最長 15 秒)的人可以手動立刻重試。
+          TextButton(
+            onPressed: () =>
+                ref.read(recordingControllerProvider.notifier).reconnectNow(),
+            style: TextButton.styleFrom(
+              foregroundColor: scheme.error,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('重新連線', style: TextStyle(fontSize: 12)),
           ),
         ],
       ),

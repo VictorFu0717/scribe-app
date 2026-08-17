@@ -438,6 +438,22 @@ class HttpBackend implements Backend {
 ///     - `{"type":"partial","tentative":..,"segments":[{"speaker","text"}],...}`
 ///     - `{"type":"final","text":..,"segments":[...]}`
 ///     - `{"type":"config",...}` / `{"type":"error","detail":..}`
+/// 第 [attempt] 次重連前要等幾秒。
+///
+/// **錄音期間永不放棄重連**,所以這裡對任何 attempt 都回傳有限秒數。
+/// 先前有 12 次上限,累計約 81 秒就轉為 failed 且再也不嘗試 —— 但錄音可能持續
+/// 數小時,VPN/行動網路中斷往往好幾分鐘後才恢復;放棄之後使用者無從補救,
+/// 只能停止錄音重開。重試成本只是一個 Timer,不值得設上限。
+///
+/// 前幾次快速重試(對付 VPN 這類短暫抖動),之後穩定在 15 秒一次。
+int wsRetryDelaySeconds(int attempt) => switch (attempt) {
+      <= 1 => 1,
+      2 => 2,
+      3 => 3,
+      4 || 5 || 6 => 5,
+      _ => 15,
+    };
+
 class _HttpTranscriptionSession implements TranscriptionSession {
   _HttpTranscriptionSession({
     required Uri base,
@@ -468,10 +484,18 @@ class _HttpTranscriptionSession implements TranscriptionSession {
   Timer? _retryTimer;
   bool _gap = false;
 
-  /// 重連期間最多緩衝這麼多音訊(約 30 秒 @16kHz/16-bit ≈ 960KB)。
-  /// 不無限緩衝:長時間斷線會吃掉大量記憶體,而本機錄音檔是完整的,
-  /// 缺的部分可在結束後用整檔重新轉錄補回(見 hadGap)。
-  static const _maxPendingBytes = 960 * 1024;
+  /// 這次斷線是何時開始的(供 UI 顯示已中斷多久)。連上後清空。
+  DateTime? _droppedAt;
+  DateTime? get droppedAt => _droppedAt;
+
+  /// 重連期間最多緩衝這麼多音訊(2 分鐘 @16kHz/16-bit mono = 32KB/s ≈ 3.75MB)。
+  ///
+  /// 抓 2 分鐘是因為 VPN/行動網路重連通常在這個區間內完成 —— 撐得過去就完全沒有
+  /// 缺口。先前只緩衝 30 秒,稍長一點的抖動就開始丟音訊。
+  ///
+  /// 但不無限緩衝:斷線可能持續整場會議,記憶體撐不住。超過就丟棄並標記 hadGap,
+  /// 由「整檔重新轉錄」補回 —— 本機錄音檔一直是完整的。
+  static const _maxPendingBytes = 2 * 60 * 32 * 1024;
   int _pendingBytes = 0;
 
   @override
@@ -529,6 +553,7 @@ class _HttpTranscriptionSession implements TranscriptionSession {
 
       _ready = true;
       _attempt = 0;
+      _droppedAt = null;
       _setLink(TranscriptionLinkState.online);
       for (final chunk in _pendingAudio) {
         channel.sink.add(chunk);
@@ -544,25 +569,28 @@ class _HttpTranscriptionSession implements TranscriptionSession {
   void _handleDrop() {
     if (_closed) return;
     _ready = false;
+    _droppedAt ??= DateTime.now();
     try {
       _channel?.sink.close();
     } catch (_) {}
     _channel = null;
 
     _attempt++;
-    if (_attempt > 12) {
-      // 放棄自動重連(約累計數分鐘都連不上);錄音仍繼續、本機檔案完整,
-      // 由 UI 提示使用者結束後用整檔重新轉錄。
-      _setLink(TranscriptionLinkState.failed);
-      return;
-    }
     _setLink(TranscriptionLinkState.reconnecting);
-    // 指數退避但上限 10 秒 —— VPN 這類短暫抖動要能快速恢復。
-    final secs = _attempt <= 3 ? _attempt : (_attempt <= 6 ? 5 : 10);
+
+    final secs = wsRetryDelaySeconds(_attempt);
     _retryTimer?.cancel();
     _retryTimer = Timer(Duration(seconds: secs), () {
       if (!_closed) _connect();
     });
+  }
+
+  /// 立刻重試連線(使用者按「重新連線」時用,不必等退避計時)。
+  void reconnectNow() {
+    if (_closed) return;
+    _retryTimer?.cancel();
+    _attempt = 0; // 重設退避,手動觸發視為新的一輪
+    _connect();
   }
 
   void _onMessage(dynamic message) {

@@ -289,6 +289,12 @@ class _MockTranscriptionSession implements TranscriptionSession {
   @override
   bool get hadGap => false;
 
+  @override
+  DateTime? get droppedAt => null;
+
+  @override
+  void reconnectNow() {}
+
   static const _lines = [
     '好,我們開始今天的會議。',
     '先看一下上週待辦的進度。',

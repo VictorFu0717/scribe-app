@@ -48,6 +48,7 @@ class RecordingState {
     this.interrupted = false,
     this.linkState = TranscriptionLinkState.online,
     this.hadGap = false,
+    this.droppedAt,
   });
 
   final RecordingPhase phase;
@@ -84,6 +85,10 @@ class RecordingState {
   /// 本機錄音檔仍完整,結束後可用整檔重新轉錄補回。
   final bool hadGap;
 
+  /// 目前這次連線中斷的起始時間;連線正常時為 null。UI 用來顯示「已中斷多久」——
+  /// 錄音可能很長,使用者需要知道缺口有多大。
+  final DateTime? droppedAt;
+
   bool get isActive =>
       phase == RecordingPhase.recording || phase == RecordingPhase.paused;
 
@@ -103,6 +108,7 @@ class RecordingState {
     bool? interrupted,
     TranscriptionLinkState? linkState,
     bool? hadGap,
+    DateTime? droppedAt,
   }) {
     return RecordingState(
       phase: phase ?? this.phase,
@@ -118,6 +124,8 @@ class RecordingState {
       interrupted: interrupted ?? this.interrupted,
       linkState: linkState ?? this.linkState,
       hadGap: hadGap ?? this.hadGap,
+      // 連線恢復時要能清掉,所以直接取新值(null 代表已連上)。
+      droppedAt: linkState == TranscriptionLinkState.online ? null : droppedAt,
     );
   }
 }
@@ -213,7 +221,11 @@ class RecordingController extends Notifier<RecordingState> {
         );
         // 連線狀態改為持續顯示(不再只用一次性提示)。
         _linkSub = session.linkState.listen((s) {
-          state = state.copyWith(linkState: s, hadGap: session.hadGap);
+          state = state.copyWith(
+            linkState: s,
+            hadGap: session.hadGap,
+            droppedAt: session.droppedAt,
+          );
         });
       }
 
@@ -235,6 +247,9 @@ class RecordingController extends Notifier<RecordingState> {
       return null;
     }
   }
+
+  /// 立刻重試轉錄連線(使用者按「重新連線」)。不必等退避計時。
+  void reconnectNow() => _session?.reconnectNow();
 
   Future<void> pauseResume() async {
     final recorder = ref.read(audioRecorderProvider);

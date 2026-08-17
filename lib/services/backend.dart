@@ -60,10 +60,10 @@ enum TranscriptionLinkState {
   online,
 
   /// 連線中斷,正在自動重連(此期間的音訊送不出去)。
+  ///
+  /// 沒有對應的「放棄」狀態 —— 錄音期間會**一直**重連到使用者停止錄音為止。
+  /// 錄音可能持續數小時,網路很可能中途恢復;放棄的話使用者無從補救。
   reconnecting,
-
-  /// 已放棄重連(需使用者處理)。
-  failed,
 }
 
 /// 一次即時轉錄連線(對應 scribe `WS /ws/asr`)。
@@ -81,6 +81,12 @@ abstract class TranscriptionSession {
   ///
   /// 為 true 時錄音結束後應提示使用者:本機錄音檔是完整的,可用整檔重新轉錄補回。
   bool get hadGap;
+
+  /// 目前這次中斷是何時開始的;已連線則為 null。供 UI 顯示「已中斷多久」。
+  DateTime? get droppedAt;
+
+  /// 立刻重試連線(不等退避計時),供 UI 的「重新連線」使用。
+  void reconnectNow();
 
   /// 送出一段 16-bit PCM 音訊(little-endian, mono, 16kHz)。
   void sendAudio(List<int> pcm16);
