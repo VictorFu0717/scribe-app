@@ -109,6 +109,7 @@ class RecordingState {
     TranscriptionLinkState? linkState,
     bool? hadGap,
     DateTime? droppedAt,
+    bool clearDroppedAt = false,
   }) {
     return RecordingState(
       phase: phase ?? this.phase,
@@ -124,8 +125,10 @@ class RecordingState {
       interrupted: interrupted ?? this.interrupted,
       linkState: linkState ?? this.linkState,
       hadGap: hadGap ?? this.hadGap,
-      // 連線恢復時要能清掉,所以直接取新值(null 代表已連上)。
-      droppedAt: linkState == TranscriptionLinkState.online ? null : droppedAt,
+      // 必須用 clearDroppedAt 顯式清除,不能靠「參數為 null」判斷 —— 錄音中的
+      // 計時器每秒呼叫 copyWith(elapsed:) 而不帶 droppedAt,先前那種寫法會把它
+      // 每秒清成 null,警示紅字因此只閃一下就消失。
+      droppedAt: clearDroppedAt ? null : (droppedAt ?? this.droppedAt),
     );
   }
 }
@@ -225,6 +228,7 @@ class RecordingController extends Notifier<RecordingState> {
             linkState: s,
             hadGap: session.hadGap,
             droppedAt: session.droppedAt,
+            clearDroppedAt: session.droppedAt == null, // 連線恢復
           );
         });
       }

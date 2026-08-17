@@ -487,7 +487,13 @@ class _HttpTranscriptionSession implements TranscriptionSession {
 
   /// 這次斷線是何時開始的(供 UI 顯示已中斷多久)。連上後清空。
   DateTime? _droppedAt;
+  @override
   DateTime? get droppedAt => _droppedAt;
+
+  /// 心跳偵測到斷線之前,已經有一小段音訊往死掉的連線送出去了(最遲約 10 秒)。
+  /// 斷線超過這個門檻就認定逐字稿真的缺了東西,值得提示使用者補救;短於此的
+  /// 抖動由緩衝接住、丟失量在心跳偵測窗內,不打擾使用者。
+  static const _gapThreshold = Duration(seconds: 20);
 
   /// 重連期間最多緩衝這麼多音訊(2 分鐘 @16kHz/16-bit mono = 32KB/s ≈ 3.75MB)。
   ///
@@ -548,6 +554,17 @@ class _HttpTranscriptionSession implements TranscriptionSession {
         },
       ).timeout(const Duration(seconds: 15));
 
+      // **心跳:偵測靜默死亡的連線。**
+      //
+      // 開飛航模式(或 VPN 掉線)時,iOS 不會給 socket 任何錯誤事件 —— TCP 連線
+      // 變成黑洞,onError/onDone 都不會觸發,於是 _handleDrop() 永遠不被呼叫:
+      // 沒有警示紅字、不會重連、音訊持續往死掉的 sink 送然後丟失。實測開飛航
+      // 模式完全沒有任何反應就是這個原因。
+      //
+      // pingInterval 會定期送 WS ping;沒在同樣時間內收到 pong 就關閉連線並觸發
+      // onDone → 進入正常的重連流程。5 秒 → 最遲約 10 秒內偵測到斷線。
+      socket.pingInterval = const Duration(seconds: 5);
+
       // await 期間使用者可能已按停止。
       if (_closed) {
         try {
@@ -581,6 +598,12 @@ class _HttpTranscriptionSession implements TranscriptionSession {
 
       _ready = true;
       _attempt = 0;
+      // 這次斷線夠久 → 心跳偵測窗內送出的音訊確實丟了,標記缺口。
+      final downFrom = _droppedAt;
+      if (downFrom != null &&
+          DateTime.now().difference(downFrom) >= _gapThreshold) {
+        _gap = true;
+      }
       _droppedAt = null;
       _setLink(TranscriptionLinkState.online);
       for (final chunk in _pendingAudio) {
