@@ -215,11 +215,13 @@ class HttpBackend implements Backend {
     String meetingId,
     String filePath, {
     required TranscriptionConfig config,
+    UploadProgressCallback? onProgress,
   }) {
     return _guard(() async {
-      final req = http.MultipartRequest(
+      final req = _ProgressMultipartRequest(
         'POST',
         _uri('/meetings/$meetingId/audio'),
+        onProgress: onProgress,
       );
       final token = await _safeToken();
       if (token != null) {
@@ -439,6 +441,33 @@ class HttpBackend implements Backend {
 ///     - `{"type":"partial","tentative":..,"segments":[{"speaker","text"}],...}`
 ///     - `{"type":"final","text":..,"segments":[...]}`
 ///     - `{"type":"config",...}` / `{"type":"error","detail":..}`
+/// 會回報上傳進度的 multipart 請求。
+///
+/// `package:http` 本身不提供進度,所以包一層 `finalize()`:它回傳的 byte stream
+/// 由 `IOClient` 以 `Stream.pipe()` 寫進 socket,而 `pipe` 會遵守 backpressure ——
+/// 因此數這條 stream 流過的量,等於實際寫入網路的量,不是把整個檔案讀進記憶體
+/// 後的假進度。(110MB 的錄音也因此不會爆記憶體。)
+class _ProgressMultipartRequest extends http.MultipartRequest {
+  _ProgressMultipartRequest(super.method, super.url, {this.onProgress});
+
+  final UploadProgressCallback? onProgress;
+
+  @override
+  http.ByteStream finalize() {
+    final cb = onProgress;
+    final inner = super.finalize();
+    if (cb == null) return inner;
+    // 含 multipart 邊界與欄位標頭,比檔案本身多幾百個位元組。
+    final total = contentLength;
+    var sent = 0;
+    return http.ByteStream(inner.map((chunk) {
+      sent += chunk.length;
+      cb(sent, total);
+      return chunk;
+    }));
+  }
+}
+
 /// 第 [attempt] 次重連前要等幾秒。
 ///
 /// **錄音期間永不放棄重連**,所以這裡對任何 attempt 都回傳有限秒數。

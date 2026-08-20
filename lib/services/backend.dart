@@ -34,6 +34,12 @@ class TranslateChunk {
   final String? error;
 }
 
+/// 上傳進度回報:[sent] 為已送出的位元組,[total] 為總量。
+///
+/// 呼叫頻率跟著網路寫入的節奏(約每 64KB 一次),一小時的錄音會呼叫上千次 ——
+/// 接收端請自行節流,不要每次都觸發 UI 重繪(見 `UploadProgressController`)。
+typedef UploadProgressCallback = void Function(int sent, int total);
+
 /// 一次即時轉錄連線(對應 `WS /transcribe/stream`)。
 ///
 /// 即時轉錄的一次「累積快照」。
@@ -121,10 +127,15 @@ abstract class Backend {
   });
 
   /// 整檔上傳後非同步轉錄。
+  ///
+  /// [onProgress] 可用來顯示上傳進度。回報的是**已寫入網路的位元組**,不是 server
+  /// 已收妥的量(中間有 socket 緩衝),對一小時的錄音而言誤差不到 1%;但送完
+  /// 100% 後 server 還要收尾才會回應,UI 應改顯示「處理中」而非停在 100%。
   Future<Meeting> uploadAudio(
     String meetingId,
     String filePath, {
     required TranscriptionConfig config,
+    UploadProgressCallback? onProgress,
   });
 
   // ── 串流生成 ──

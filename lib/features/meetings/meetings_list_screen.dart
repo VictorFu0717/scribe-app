@@ -8,6 +8,7 @@ import '../../core/utils/formatters.dart';
 import '../../models/meeting.dart';
 import '../../providers/meetings_controller.dart';
 import '../../services/audio_file_picker.dart';
+import '../../widgets/upload_progress_dialog.dart';
 import '../../services/audio_import.dart';
 import '../../routing/app_router.dart';
 import '../../widgets/brand_wave.dart';
@@ -92,7 +93,7 @@ class MeetingsListScreen extends ConsumerWidget {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (_) => const _UploadingDialog(),
+        builder: (_) => const UploadProgressDialog(),
       );
     }
     try {
@@ -112,36 +113,6 @@ class MeetingsListScreen extends ConsumerWidget {
 
   void _toast(BuildContext context, String msg) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-}
-
-class _UploadingDialog extends StatelessWidget {
-  const _UploadingDialog();
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Row(
-            children: [
-              SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2.5)),
-              SizedBox(width: 16),
-              Expanded(child: Text('處理並上傳中…')),
-            ],
-          ),
-          const SizedBox(height: 10),
-          // 長檔案要壓縮 + 上傳,可能一兩分鐘。切走 App 會被系統暫停而中斷。
-          Text('長時間的錄音需要壓縮與上傳,請暫時不要切換到其他 App。',
-              style: TextStyle(
-                  fontSize: 12.5,
-                  color: Theme.of(context).colorScheme.outline)),
-        ],
-      ),
-    );
-  }
 }
 
 class _RecordFab extends StatelessWidget {

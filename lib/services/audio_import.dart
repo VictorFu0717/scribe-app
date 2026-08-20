@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../providers/meetings_controller.dart';
 import '../providers/service_providers.dart';
+import '../providers/upload_progress_controller.dart';
 import 'audio_convert.dart';
 import 'background_task.dart';
 
@@ -14,14 +15,22 @@ import 'background_task.dart';
 /// (見 [IncomingFile])。失敗時丟出例外,由呼叫端顯示訊息。
 ///
 /// 取 WidgetRef 而非 Ref:兩個呼叫端都在 widget 內(清單頁與 HomeShell)。
-Future<String> importAudioFile(WidgetRef ref, String path) =>
+Future<String> importAudioFile(WidgetRef ref, String path) async {
+  final progress = ref.read(uploadProgressProvider.notifier);
+  progress.begin();
+  try {
     // 整段包在 background task 內:上傳大檔可能數分鐘,期間 App 若離開前景
     // 會被 iOS 暫停,上傳就中斷(實測一小時的檔案上傳到一半即中止)。
-    BackgroundTask.run(() => _importAudioFile(ref, path));
+    return await BackgroundTask.run(() => _importAudioFile(ref, path));
+  } finally {
+    progress.reset();
+  }
+}
 
 Future<String> _importAudioFile(WidgetRef ref, String path) async {
   final backend = ref.read(backendProvider);
   final config = ref.read(transcriptionConfigProvider);
+  final progress = ref.read(uploadProgressProvider.notifier);
 
   final meeting = await backend.createMeeting(title: titleFromPath(path));
 
@@ -42,11 +51,17 @@ Future<String> _importAudioFile(WidgetRef ref, String path) async {
   //    先前為了避免上傳中斷而改成壓縮後上傳,但後來確認那些中斷的真因是壓縮本身
   //    會崩潰(見 AudioConvert),而非上傳量 —— 使用者實測「重新轉錄」上傳同樣的
   //    110MB 原檔是可以成功的。
-  await backend.uploadAudio(meeting.id, localCopy ?? path, config: config);
+  await backend.uploadAudio(
+    meeting.id,
+    localCopy ?? path,
+    config: config,
+    onProgress: progress.onBytes,
+  );
 
   // 4) 上傳完成後才壓縮本機副本(一小時 110MB → 約 8MB),省空間並便於分享。
   //    失敗也無妨:記錄仍指向原檔,播放與分享照常。
   if (localCopy != null && await AudioConvert.isWav(localCopy)) {
+    progress.setPhase(UploadPhase.compressing);
     final compressed = await AudioConvert.wavToM4a(localCopy);
     if (compressed != null) {
       await store.save(meeting.id, compressed);

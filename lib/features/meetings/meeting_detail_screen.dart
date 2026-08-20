@@ -13,6 +13,7 @@ import '../../providers/meetings_controller.dart';
 import '../../providers/service_providers.dart';
 import '../../providers/meeting_translation_controller.dart';
 import '../../providers/transcript_translation_controller.dart';
+import '../../providers/upload_progress_controller.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
 import '../../services/audio_convert.dart';
@@ -22,6 +23,7 @@ import '../../services/export_service.dart';
 import '../../widgets/audio_player_bar.dart';
 import '../../widgets/export_button.dart';
 import '../../widgets/transcript_view.dart';
+import '../../widgets/upload_progress_dialog.dart';
 import '../assistant/assistant_screen.dart';
 import '../summary/summary_view.dart';
 
@@ -588,23 +590,34 @@ class _RetranscribeViewState extends ConsumerState<_RetranscribeView> {
 
   Future<void> _retranscribe() async {
     setState(() => _busy = true);
+    final progress = ref.read(uploadProgressProvider.notifier);
+    progress.begin(UploadPhase.uploading);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const UploadProgressDialog(),
+    );
     try {
       await BackgroundTask.run(() => ref.read(backendProvider).uploadAudio(
             widget.meeting.id,
             widget.audioPath,
             config: ref.read(transcriptionConfigProvider),
+            onProgress: progress.onBytes,
           ));
       if (!mounted) return;
+      Navigator.of(context).pop(); // 關閉進度對話框
       // 重新拉狀態與逐字稿(server 會轉為處理中,詳情頁本身會輪詢)。
       ref.invalidate(meetingProvider(widget.meeting.id));
       ref.invalidate(transcriptProvider(widget.meeting.id));
     } catch (e) {
       if (mounted) {
+        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content:
                 Text(e is ApiException ? e.message : '重新轉錄失敗:$e')));
       }
     } finally {
+      progress.reset();
       if (mounted) setState(() => _busy = false);
     }
   }

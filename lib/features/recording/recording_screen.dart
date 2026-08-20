@@ -12,9 +12,12 @@ import '../../providers/recording_controller.dart';
 import '../../providers/service_providers.dart';
 import '../../providers/settings_controller.dart';
 import '../../providers/translation_models_controller.dart';
+import '../../providers/upload_progress_controller.dart';
 import '../../routing/app_router.dart';
+import '../../services/background_task.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
+import '../../widgets/upload_progress_dialog.dart';
 import '../../widgets/level_meter.dart';
 import '../../widgets/recording_orb.dart';
 import '../../widgets/soft_card.dart';
@@ -87,29 +90,28 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
     );
     if (ok != true || !mounted) return;
 
+    final progress = ref.read(uploadProgressProvider.notifier);
+    progress.begin(UploadPhase.uploading);
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Row(children: [
-          SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 3)),
-          SizedBox(width: 16),
-          Expanded(child: Text('正在上傳完整錄音…')),
-        ]),
-      ),
+      builder: (_) => const UploadProgressDialog(),
     );
     try {
-      await ref.read(backendProvider).uploadAudio(meetingId, path,
-          config: ref.read(transcriptionConfigProvider));
+      // 包在 background task 內:整檔上傳可能數分鐘,期間離開前景會被 iOS 暫停。
+      await BackgroundTask.run(
+        () => ref.read(backendProvider).uploadAudio(meetingId, path,
+            config: ref.read(transcriptionConfigProvider),
+            onProgress: progress.onBytes),
+      );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(e is ApiException ? e.message : '重新轉錄失敗:$e')));
+    } finally {
+      progress.reset();
     }
   }
 

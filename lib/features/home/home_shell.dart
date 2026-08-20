@@ -6,6 +6,7 @@ import '../../core/network/api_exception.dart';
 import '../../routing/app_router.dart';
 import '../../services/audio_import.dart';
 import '../../services/incoming_file.dart';
+import '../../widgets/upload_progress_dialog.dart';
 import '../assistant/assistant_screen.dart';
 import '../meetings/meetings_list_screen.dart';
 import '../settings/settings_screen.dart';
@@ -56,7 +57,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const _ImportingDialog(),
+      builder: (_) => const UploadProgressDialog(title: '正在匯入分享的音檔…'),
     );
     try {
       final meetingId = await importAudioFile(ref, path);
@@ -107,27 +108,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
             selectedIcon: Icon(Icons.settings),
             label: '設定',
           ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 分享進來的音檔上傳中(與清單頁的上傳提示一致)。
-class _ImportingDialog extends StatelessWidget {
-  const _ImportingDialog();
-
-  @override
-  Widget build(BuildContext context) {
-    return const AlertDialog(
-      content: Row(
-        children: [
-          SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 3)),
-          SizedBox(width: 16),
-          Expanded(child: Text('正在匯入分享的音檔…')),
         ],
       ),
     );

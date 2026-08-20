@@ -166,9 +166,20 @@ class MockBackend implements Backend {
     String meetingId,
     String filePath, {
     required TranscriptionConfig config,
+    UploadProgressCallback? onProgress,
   }) async {
     final m = _meetings[meetingId];
     if (m == null) throw StateError('not found');
+
+    // 模擬上傳進度,好在無 server 時也能看到進度條的行為。
+    if (onProgress != null) {
+      const total = 20 * 1024 * 1024;
+      for (var sent = 0; sent < total; sent += total ~/ 25) {
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        onProgress(sent, total);
+      }
+      onProgress(total, total);
+    }
     final updated = m.copyWith(status: MeetingStatus.transcribing);
     _meetings[meetingId] = updated;
     // 模擬非同步轉錄完成:2 秒後 ready 並產生逐字稿(供輪詢/匯入流程 demo)。
