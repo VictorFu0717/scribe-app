@@ -9,6 +9,10 @@ import UIKit
 /// - 由分享動作冷啟動:`scene(_:willConnectTo:options:)` 的 `connectionOptions.urlContexts`
 ///
 /// 先前只實作了 AppDelegate 的版本,所以在分享清單點「會議助理」毫無反應。
+/// `@objc(SceneDelegate)` 固定 ObjC 執行期名稱,讓 Info.plist 的
+/// UISceneDelegateClassName 可直接寫 `SceneDelegate`,不依賴 $(PRODUCT_MODULE_NAME)
+/// 於 Info.plist 的變數展開。
+@objc(SceneDelegate)
 class SceneDelegate: FlutterSceneDelegate {
   override func scene(
     _ scene: UIScene,
