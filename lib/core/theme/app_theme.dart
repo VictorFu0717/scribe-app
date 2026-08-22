@@ -100,6 +100,12 @@ class AppTheme {
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       ),
+      // 注意:minimumSize 的寬度是 **infinity**(Size.fromHeight 的語意),
+      // 為的是讓表單的主要按鈕自動滿版。因此 FilledButton 只能放在寬度有界的
+      // 位置(Column、AlertDialog.actions);直接放進 Row 會變成「強制無限寬」,
+      // debug 版拋 assertion,**release 版不報錯但按鈕會被排到畫面外**
+      // (實測發生過:編輯逐字稿的面板找不到「儲存」)。
+      // 要放進 Row 就在該處自行覆寫 minimumSize。
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           minimumSize: const Size.fromHeight(54),
