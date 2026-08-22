@@ -15,6 +15,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 TranscriptSegment seg(String id, String text, {int? startMs}) =>
     TranscriptSegment(id: id, text: text, isFinal: true, startMs: startMs);
 
+/// 數 getTranscript 被呼叫幾次 —— 用來確認編輯不會害它重抓一次。
+class _CountingBackend extends MockBackend {
+  int transcriptFetches = 0;
+
+  @override
+  Future<List<TranscriptSegment>> getTranscript(String meetingId) {
+    transcriptFetches++;
+    return super.getTranscript(meetingId);
+  }
+}
+
 void main() {
   // 匯出會用到日期格式化。
   setUpAll(() => initializeDateFormatting('zh_TW', null));
@@ -123,7 +134,8 @@ void main() {
       // 取一場 mock 會議既有的逐字稿。
       final meetings = await backend.listMeetings();
       final id = meetings.first.id;
-      final before = await container.read(transcriptProvider(id).future);
+      await container.read(rawTranscriptProvider(id).future);
+      final before = container.read(transcriptProvider(id)).requireValue;
       expect(before, isNotEmpty);
 
       final target = before.first;
@@ -131,8 +143,7 @@ void main() {
           .read(transcriptEditsProvider(id).notifier)
           .edit(target, 0, '這是我改過的內容');
 
-      container.invalidate(transcriptProvider(id));
-      final after = await container.read(transcriptProvider(id).future);
+      final after = container.read(transcriptProvider(id)).requireValue;
       expect(after.first.text, '這是我改過的內容');
       // 其餘片段不能受影響。
       expect(after.length, before.length);
@@ -154,19 +165,18 @@ void main() {
       addTearDown(container.dispose);
 
       final id = (await backend.listMeetings()).first.id;
-      final before = await container.read(transcriptProvider(id).future);
+      await container.read(rawTranscriptProvider(id).future);
+      final before = container.read(transcriptProvider(id)).requireValue;
       final original = before.first.text;
       final notifier = container.read(transcriptEditsProvider(id).notifier);
 
       await notifier.edit(before.first, 0, '改過');
-      container.invalidate(transcriptProvider(id));
-      final edited = await container.read(transcriptProvider(id).future);
+      final edited = container.read(transcriptProvider(id)).requireValue;
       expect(edited.first.text, '改過');
 
       // 注意:傳入的是**目前顯示**的片段(已是修訂後),還原仍要能對上。
       await notifier.revert(edited.first, 0);
-      container.invalidate(transcriptProvider(id));
-      final reverted = await container.read(transcriptProvider(id).future);
+      final reverted = container.read(transcriptProvider(id)).requireValue;
       expect(reverted.first.text, original);
     });
 
@@ -180,19 +190,56 @@ void main() {
       addTearDown(container.dispose);
 
       final id = (await backend.listMeetings()).first.id;
-      final before = await container.read(transcriptProvider(id).future);
+      await container.read(rawTranscriptProvider(id).future);
+      final before = container.read(transcriptProvider(id)).requireValue;
       final notifier = container.read(transcriptEditsProvider(id).notifier);
 
       await notifier.edit(before.first, 0, '第一次改');
-      container.invalidate(transcriptProvider(id));
-      var cur = await container.read(transcriptProvider(id).future);
+      var cur = container.read(transcriptProvider(id)).requireValue;
 
       // 第二次改的是「已修訂過」的片段。若把它的文字當成 original 存下去,
       // 就再也對不上 server 回來的原文,修訂會整條失效。
       await notifier.edit(cur.first, 0, '第二次改');
-      container.invalidate(transcriptProvider(id));
-      cur = await container.read(transcriptProvider(id).future);
+      cur = container.read(transcriptProvider(id)).requireValue;
       expect(cur.first.text, '第二次改');
+    });
+  });
+
+  // 實測回報:改完一段之後畫面跳回第一行。原因是 transcriptProvider 曾是
+  // FutureProvider 卻 watch 了修訂 —— 一改字整個 future 重跑、重抓 server,
+  // 期間 AsyncValue 進入 loading,畫面整份換成轉圈圈,ListView 重建就捲回頂端。
+  group('編輯不該讓畫面重建(捲動位置才留得住)', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('編輯後不進入 loading,且不重新向 server 抓逐字稿', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final backend = _CountingBackend();
+      final container = ProviderContainer(overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        backendProvider.overrideWithValue(backend),
+      ]);
+      addTearDown(container.dispose);
+
+      final id = (await backend.listMeetings()).first.id;
+      // 保持訂閱,否則 provider 會被回收、重讀時又抓一次而測不到重點。
+      final sub = container.listen(transcriptProvider(id), (_, __) {});
+      addTearDown(sub.close);
+
+      await container.read(rawTranscriptProvider(id).future);
+      final fetchesBefore = backend.transcriptFetches;
+      final before = container.read(transcriptProvider(id)).requireValue;
+
+      await container
+          .read(transcriptEditsProvider(id).notifier)
+          .edit(before.first, 0, '改過的內容');
+
+      final after = container.read(transcriptProvider(id));
+      expect(after.isLoading, isFalse,
+          reason: '一進 loading,畫面就整份換成轉圈圈,捲動位置必定歸零');
+      expect(after.hasValue, isTrue);
+      expect(after.requireValue.first.text, '改過的內容');
+      expect(backend.transcriptFetches, fetchesBefore,
+          reason: '改個字不該再打一次 server(慢、耗流量,還會讓畫面閃一下)');
     });
   });
 }

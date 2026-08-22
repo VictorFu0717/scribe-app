@@ -66,7 +66,7 @@ class _MeetingDetailScreenState extends ConsumerState<MeetingDetailScreen> {
       if (_prevStatus != null && _prevStatus != status) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          ref.invalidate(transcriptProvider(meetingId));
+          ref.invalidate(rawTranscriptProvider(meetingId));
         });
       }
     }
@@ -246,7 +246,7 @@ class _TranscriptTab extends ConsumerWidget {
           return _TranscribingPlaceholder(
             onRefresh: () {
               ref.invalidate(meetingProvider(meeting.id));
-              ref.invalidate(transcriptProvider(meeting.id));
+              ref.invalidate(rawTranscriptProvider(meeting.id));
             },
           );
         }
@@ -378,8 +378,8 @@ class _TranscriptTab extends ConsumerWidget {
     } else {
       await notifier.edit(segment, index, result.text);
     }
-    // 逐字稿的來源是 FutureProvider,要重讀才會重新套用修訂。
-    ref.invalidate(transcriptProvider(meetingId));
+    // 不要 invalidate:transcriptProvider 已經 watch 修訂,會自己重算。
+    // 重抓逐字稿只會讓畫面閃一下並把捲動位置歸零(見 transcriptProvider 的說明)。
   }
 
   /// 匯出時一併帶上目前顯示的譯文,讓 .txt 與畫面上看到的雙語一致。
@@ -682,7 +682,7 @@ class _RetranscribeViewState extends ConsumerState<_RetranscribeView> {
       Navigator.of(context).pop(); // 關閉進度對話框
       // 重新拉狀態與逐字稿(server 會轉為處理中,詳情頁本身會輪詢)。
       ref.invalidate(meetingProvider(widget.meeting.id));
-      ref.invalidate(transcriptProvider(widget.meeting.id));
+      ref.invalidate(rawTranscriptProvider(widget.meeting.id));
     } catch (e) {
       if (mounted) {
         Navigator.of(context).pop();
