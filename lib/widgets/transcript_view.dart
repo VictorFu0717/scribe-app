@@ -17,6 +17,7 @@ class TranscriptView extends StatefulWidget {
     this.translations = const {},
     this.onSeek,
     this.onEdit,
+    this.onEditSpeaker,
     this.editedKeys = const {},
   });
 
@@ -37,6 +38,9 @@ class TranscriptView extends StatefulWidget {
   ///
   /// 帶 index 是因為修訂的 key 在沒有時間戳時要靠位置(見 TranscriptEditStore)。
   final void Function(TranscriptSegment segment, int index)? onEdit;
+
+  /// 點說話者名稱時改名 / 改指定人。給定時名稱才可點。
+  final void Function(TranscriptSegment segment, int index)? onEditSpeaker;
 
   /// 已被修改過的片段索引,用來標示「已編輯」。
   final Set<int> editedKeys;
@@ -99,6 +103,9 @@ class _TranscriptViewState extends State<TranscriptView> {
           onEdit: isPartial || widget.onEdit == null
               ? null
               : () => widget.onEdit!(seg, i),
+          onEditSpeaker: isPartial || widget.onEditSpeaker == null
+              ? null
+              : () => widget.onEditSpeaker!(seg, i),
           edited: widget.editedKeys.contains(i),
         );
       },
@@ -113,6 +120,7 @@ class _SegmentTile extends StatelessWidget {
     this.translation,
     this.onSeek,
     this.onEdit,
+    this.onEditSpeaker,
     this.edited = false,
   });
   final TranscriptSegment segment;
@@ -121,6 +129,9 @@ class _SegmentTile extends StatelessWidget {
 
   /// 點文字修改這一段;null 表示不可編輯。
   final VoidCallback? onEdit;
+
+  /// 點說話者名稱改名 / 改指定人;null 表示不可點。
+  final VoidCallback? onEditSpeaker;
 
   /// 這段已被人工修改過(標示出來,才知道哪裡動過)。
   final bool edited;
@@ -173,12 +184,30 @@ class _SegmentTile extends StatelessWidget {
                     const SizedBox(width: 6),
                   ],
                   if (segment.speaker != null)
-                    Text(
-                      segment.speaker!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: scheme.primary,
+                    // 可點 → 改名字(整場)或改成別人(這一段)。
+                    InkWell(
+                      onTap: onEditSpeaker,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 3, vertical: 1),
+                        child: Row(
+                          children: [
+                            Text(
+                              segment.speaker!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: scheme.primary,
+                              ),
+                            ),
+                            if (onEditSpeaker != null) ...[
+                              const SizedBox(width: 2),
+                              Icon(Icons.expand_more_rounded,
+                                  size: 14, color: scheme.primary),
+                            ],
+                          ],
+                        ),
                       ),
                     ),
                   if (edited) ...[

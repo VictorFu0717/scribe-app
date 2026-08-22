@@ -2,8 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/meeting.dart';
 import '../models/transcript_segment.dart';
+import '../services/speaker_name_store.dart';
 import '../services/transcript_edit_store.dart';
 import 'service_providers.dart';
+import 'speaker_names_controller.dart';
 import 'transcript_edits_controller.dart';
 
 /// 會議清單。對應 `GET /meetings`。
@@ -64,5 +66,9 @@ final transcriptProvider =
     Provider.family<AsyncValue<List<TranscriptSegment>>, String>((ref, id) {
   final raw = ref.watch(rawTranscriptProvider(id));
   final edits = ref.watch(transcriptEditsProvider(id));
-  return raw.whenData((segments) => applyTranscriptEdits(segments, edits));
+  final speakers = ref.watch(speakerPrefsProvider(id));
+  return raw.whenData((segments) => applySpeakerPrefs(
+        applyTranscriptEdits(segments, edits),
+        speakers,
+      ));
 });

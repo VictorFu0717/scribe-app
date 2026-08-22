@@ -13,12 +13,14 @@ import '../../providers/meetings_controller.dart';
 import '../../providers/service_providers.dart';
 import '../../providers/meeting_translation_controller.dart';
 import '../../providers/transcript_translation_controller.dart';
+import '../../providers/speaker_names_controller.dart';
 import '../../providers/transcript_edits_controller.dart';
 import '../../providers/upload_progress_controller.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
 import '../../services/audio_convert.dart';
 import '../../services/background_task.dart';
+import '../../services/speaker_name_store.dart';
 import '../../services/transcript_edit_store.dart';
 import '../../services/save_to_device.dart';
 import '../../services/export_service.dart';
@@ -26,6 +28,7 @@ import '../../widgets/audio_player_bar.dart';
 import '../../widgets/export_button.dart';
 import '../../widgets/transcript_view.dart';
 import '../../widgets/segment_edit_sheet.dart';
+import '../../widgets/speaker_edit_sheet.dart';
 import '../../widgets/upload_progress_dialog.dart';
 import '../assistant/assistant_screen.dart';
 import '../summary/summary_view.dart';
@@ -282,6 +285,9 @@ class _TranscriptTab extends ConsumerWidget {
             emptyHint: '這場會議還沒有逐字稿',
             translations: translations,
             editedKeys: editedKeys,
+            // 點說話者名稱 → 改名(整場)或改成別人(這一段)。
+            onEditSpeaker: (_, index) =>
+                _editSpeaker(context, ref, meeting.id, index),
             // 點文字 → 修改該段(辨識有誤時自行改正)。
             onEdit: (segment, index) => _editSegment(
               context,
@@ -380,6 +386,49 @@ class _TranscriptTab extends ConsumerWidget {
     }
     // 不要 invalidate:transcriptProvider 已經 watch 修訂,會自己重算。
     // 重抓逐字稿只會讓畫面閃一下並把捲動位置歸零(見 transcriptProvider 的說明)。
+  }
+
+  /// 開啟說話者面板:改名(套用整場)或把這一段指派給別人。
+  ///
+  /// 傳的是 index 而非畫面上的片段 —— 指派必須拿 **server 原始的**片段來比對
+  /// 原始說話者,畫面上的已經疊過設定了(名字可能已被改掉)。
+  Future<void> _editSpeaker(
+    BuildContext context,
+    WidgetRef ref,
+    String meetingId,
+    int index,
+  ) async {
+    final rawSegments =
+        ref.read(rawTranscriptProvider(meetingId)).valueOrNull;
+    if (rawSegments == null || index >= rawSegments.length) return;
+
+    final prefs = ref.read(speakerPrefsProvider(meetingId));
+    // 清單 = server 原始標籤(依出現順序)+ 使用者自建的說話者。
+    final canonical = <String>[];
+    for (final seg in rawSegments) {
+      final s = seg.speaker;
+      if (s != null && s.isNotEmpty && !canonical.contains(s)) {
+        canonical.add(s);
+      }
+    }
+    for (final key in prefs.names.keys) {
+      if (key.startsWith(SpeakerNameStore.customPrefix) &&
+          !canonical.contains(key)) {
+        canonical.add(key);
+      }
+    }
+    if (canonical.isEmpty) return; // 沒開 diarization,沒有說話者可改
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => SpeakerEditSheet(
+        meetingId: meetingId,
+        rawSegment: rawSegments[index],
+        index: index,
+        canonicalSpeakers: canonical,
+      ),
+    );
   }
 
   /// 匯出時一併帶上目前顯示的譯文,讓 .txt 與畫面上看到的雙語一致。
