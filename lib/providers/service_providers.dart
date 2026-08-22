@@ -8,6 +8,7 @@ import '../services/audio_recorder_service.dart';
 import '../services/backend.dart';
 import '../services/http_backend.dart';
 import '../services/mock_backend.dart';
+import '../services/transcript_edit_store.dart';
 import 'settings_controller.dart';
 
 final tokenStorageProvider = Provider<TokenStorage>((ref) => TokenStorage());
@@ -66,6 +67,10 @@ class LocalRecordingStore {
   Future<void> save(String meetingId, String path) =>
       _prefs.setString(_key(meetingId), path);
 }
+
+/// 逐字稿的人工修訂(辨識有誤時自行改正)。以 SharedPreferences 持久化。
+final transcriptEditStoreProvider = Provider<TranscriptEditStore>(
+    (ref) => TranscriptEditStore(ref.read(sharedPreferencesProvider)));
 
 /// 每場會議各自的翻譯設定。
 final meetingTranslationStoreProvider = Provider<MeetingTranslationStore>(

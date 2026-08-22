@@ -2,7 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/meeting.dart';
 import '../models/transcript_segment.dart';
+import '../services/transcript_edit_store.dart';
 import 'service_providers.dart';
+import 'transcript_edits_controller.dart';
 
 /// 會議清單。對應 `GET /meetings`。
 final meetingsListProvider =
@@ -39,8 +41,12 @@ final meetingProvider =
   return ref.watch(backendProvider).getMeeting(id);
 });
 
-/// 逐字稿(已完成的會議)。
+/// 逐字稿(已完成的會議),已疊上本機的人工修訂。
+///
+/// 修訂在這裡套用而非各畫面各自處理 —— 這是逐字稿的**單一讀取入口**,
+/// 畫面、匯出、裝置內翻譯都經過它,才不會出現「畫面改了但匯出沒改」。
 final transcriptProvider =
     FutureProvider.family<List<TranscriptSegment>, String>((ref, id) async {
-  return ref.watch(backendProvider).getTranscript(id);
+  final segments = await ref.watch(backendProvider).getTranscript(id);
+  return applyTranscriptEdits(segments, ref.watch(transcriptEditsProvider(id)));
 });

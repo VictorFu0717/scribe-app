@@ -13,16 +13,19 @@ import '../../providers/meetings_controller.dart';
 import '../../providers/service_providers.dart';
 import '../../providers/meeting_translation_controller.dart';
 import '../../providers/transcript_translation_controller.dart';
+import '../../providers/transcript_edits_controller.dart';
 import '../../providers/upload_progress_controller.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
 import '../../services/audio_convert.dart';
 import '../../services/background_task.dart';
+import '../../services/transcript_edit_store.dart';
 import '../../services/save_to_device.dart';
 import '../../services/export_service.dart';
 import '../../widgets/audio_player_bar.dart';
 import '../../widgets/export_button.dart';
 import '../../widgets/transcript_view.dart';
+import '../../widgets/segment_edit_sheet.dart';
 import '../../widgets/upload_progress_dialog.dart';
 import '../assistant/assistant_screen.dart';
 import '../summary/summary_view.dart';
@@ -262,12 +265,32 @@ class _TranscriptTab extends ConsumerWidget {
           return _RetranscribeView(meeting: meeting, audioPath: localPath);
         }
 
+        // 哪幾段被改過(用來標示「已編輯」)。
+        final edits = ref.watch(transcriptEditsProvider(meeting.id));
+        final editedKeys = <int>{};
+        for (var i = 0; i < segments.length; i++) {
+          if (edits.containsKey(
+              TranscriptEditStore.keyFor(segments[i], i))) {
+            editedKeys.add(i);
+          }
+        }
+
         final view = RefreshIndicator(
           onRefresh: () async => ref.invalidate(transcriptProvider(meeting.id)),
           child: TranscriptView(
             segments: segments,
             emptyHint: '這場會議還沒有逐字稿',
             translations: translations,
+            editedKeys: editedKeys,
+            // 點文字 → 修改該段(辨識有誤時自行改正)。
+            onEdit: (segment, index) => _editSegment(
+              context,
+              ref,
+              meeting.id,
+              segment,
+              index,
+              canPlay: hasAudio,
+            ),
             // 點時間戳跳到錄音的該位置並播放 —— 辨識有誤時可直接回去對照原音。
             //
             // 只在「這場會議的音源確實已載入」時才可點:播放器是 App 層級共用的
@@ -309,6 +332,54 @@ class _TranscriptTab extends ConsumerWidget {
         );
       },
     );
+  }
+
+  /// 開啟編輯面板修改某一段逐字稿。
+  ///
+  /// 修訂存在本機(server 沒有修改逐字稿的端點),`transcriptProvider` 讀取時會
+  /// 疊上去,所以畫面與匯出都會跟著變。
+  Future<void> _editSegment(
+    BuildContext context,
+    WidgetRef ref,
+    String meetingId,
+    TranscriptSegment segment,
+    int index, {
+    required bool canPlay,
+  }) async {
+    final notifier = ref.read(transcriptEditsProvider(meetingId).notifier);
+    final existing = notifier.editFor(segment, index);
+    final startMs = segment.startMs;
+
+    final result = await showModalBottomSheet<SegmentEditResult>(
+      context: context,
+      isScrollControlled: true, // 鍵盤升起時要能上推
+      builder: (_) => SegmentEditSheet(
+        text: segment.text,
+        // 原文取自修訂記錄,沒改過就是目前的文字。
+        original: existing?.original ?? segment.text,
+        stamp: startMs == null
+            ? null
+            : Formatters.duration(Duration(milliseconds: startMs)),
+        onPlay: !canPlay || startMs == null
+            ? null
+            : () async {
+                final player = ref.read(audioPlayerProvider);
+                // 播放器是 App 層級共用的,先確認載入的是本場會議。
+                if (player.loadedMeetingId != meetingId) return;
+                await player.seek(Duration(milliseconds: startMs));
+                await player.play();
+              },
+      ),
+    );
+    if (result == null) return; // 取消
+
+    if (result.revert) {
+      await notifier.revert(segment, index);
+    } else {
+      await notifier.edit(segment, index, result.text);
+    }
+    // 逐字稿的來源是 FutureProvider,要重讀才會重新套用修訂。
+    ref.invalidate(transcriptProvider(meetingId));
   }
 
   /// 匯出時一併帶上目前顯示的譯文,讓 .txt 與畫面上看到的雙語一致。
@@ -504,9 +575,12 @@ class _ShareAudioButtonState extends ConsumerState<_ShareAudioButton> {
     var path = widget.audioPath;
     setState(() => _busy = true);
     try {
-      // WAV 太大送不出去(一小時約 110MB,實測 LINE 無法傳送)→ 先壓成 m4a(約 9MB)。
+      // WAV 太大送不出去(一小時約 110MB,實測 LINE 無法傳送)→ 先壓成 m4a(約 8MB)。
       // 轉檔成功就更新本機記錄並刪掉 WAV,之後播放/分享都用小檔,也省下手機空間。
-      // 舊錄音是 WAV,故這裡處理才能讓既有檔案也受益(新錄音在停止時已壓縮)。
+      //
+      // 壓縮就是在這裡(以及「存到手機」)才做的 —— 錄音停止時刻意不壓縮,
+      // 以免拖累收尾流程(見 RecordingController.stop 的說明),所以這裡會遇到
+      // 尚未壓縮的新錄音,不只是舊檔。
       if (await AudioConvert.isWav(path)) {
         final converted = await AudioConvert.wavToM4a(path);
         if (converted != null) {
