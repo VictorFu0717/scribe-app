@@ -4,10 +4,12 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:meeting_assistant/core/network/api_exception.dart';
 import 'package:meeting_assistant/core/storage/token_storage.dart';
 import 'package:meeting_assistant/models/auth_token.dart';
 import 'package:meeting_assistant/models/chat_message.dart';
 import 'package:meeting_assistant/models/meeting.dart';
+import 'package:meeting_assistant/models/transcript_segment.dart';
 import 'package:meeting_assistant/models/transcription_config.dart';
 import 'package:meeting_assistant/services/http_backend.dart';
 
@@ -400,6 +402,119 @@ void main() {
         'tags': ['專案會議', '', null, 42, '每週會議'],
       });
       expect(m.tags, ['專案會議', '每週會議']);
+    });
+  });
+
+  // ── 編輯逐字稿(server commit 5024b43)──
+  //
+  // 契約取自 app/routers/meetings.py 的 put_transcript / TranscriptSegmentIn:
+  //   PUT /meetings/{id}/transcript
+  //   body {"segments":[{text, speaker?, start_ms?, end_ms?}]}   整組取代
+  //   200 → {"id":..,"segments":N,"status":"saved"}
+  //   409 錄音/轉錄中   400 有空白段落   404 非本人
+  group('編輯逐字稿', () {
+    test('PUT 送出整組段落,欄位名與 server 的模型一致', () async {
+      late String method;
+      late Uri url;
+      late Map<String, dynamic> body;
+      final client = MockClient.streaming((req, bodyStream) async {
+        method = req.method;
+        url = req.url;
+        body = jsonDecode(await bodyStream.bytesToString())
+            as Map<String, dynamic>;
+        return _json({'id': 'm1', 'segments': 2, 'status': 'saved'});
+      });
+
+      await _backend(client).putTranscript('m1', const [
+        TranscriptSegment(
+            id: 's0',
+            text: '請大家準備簡報',
+            isFinal: true,
+            speaker: '小明',
+            startMs: 0,
+            endMs: 4000),
+        TranscriptSegment(id: 's1', text: '好', isFinal: true),
+      ]);
+
+      expect(method, 'PUT');
+      expect(url.path, '/meetings/m1/transcript');
+      final segs = (body['segments'] as List).cast<Map<String, dynamic>>();
+      expect(segs, hasLength(2));
+      expect(segs[0], {
+        'text': '請大家準備簡報',
+        'speaker': '小明',
+        'start_ms': 0,
+        'end_ms': 4000,
+      });
+      // 沒有說話者/時間戳的段落照樣要送 null —— 整組取代語意下,
+      // 這就是「這段沒有這些值」的意思。
+      expect(segs[1], {
+        'text': '好',
+        'speaker': null,
+        'start_ms': null,
+        'end_ms': null,
+      });
+      // App 內部的 id / isFinal 不該送出去(server 會忽略,但沒必要送)。
+      expect(segs[0].containsKey('id'), isFalse);
+      expect(segs[0].containsKey('is_final'), isFalse);
+    });
+
+    test('409:錯誤訊息要用 server 的 detail,不是「請求失敗(409)」', () async {
+      final client = MockClient.streaming((_, __) async => _json(
+          {'detail': '會議狀態為 transcribing,請等轉錄完成後再編輯'}, 409));
+      try {
+        await _backend(client).putTranscript('m1', const [
+          TranscriptSegment(id: 's', text: '甲', isFinal: true),
+        ]);
+        fail('應該要丟 ApiException');
+      } on ApiException catch (e) {
+        expect(e.statusCode, 409);
+        expect(e.message, contains('請等轉錄完成後再編輯'),
+            reason: '只顯示狀態碼對使用者毫無幫助 —— server 的 detail 寫得很具體');
+      }
+    });
+
+    test('400 也用 server 的 detail', () async {
+      final client = MockClient.streaming((_, __) async =>
+          _json({'detail': 'segments 內含空白文字;請先移除該段再送出'}, 400));
+      try {
+        await _backend(client).putTranscript('m1', const [
+          TranscriptSegment(id: 's', text: '甲', isFinal: true),
+        ]);
+        fail('應該要丟 ApiException');
+      } on ApiException catch (e) {
+        expect(e.message, contains('空白文字'));
+      }
+    });
+
+    test('401 仍用自己的說法(server 的 detail 是給開發者看的)', () async {
+      final client = MockClient.streaming((_, __) async =>
+          _json({'detail': '需要登入(Authorization: Bearer)'}, 401));
+      try {
+        await _backend(client).putTranscript('m1', const [
+          TranscriptSegment(id: 's', text: '甲', isFinal: true),
+        ]);
+        fail('應該要丟 ApiException');
+      } on ApiException catch (e) {
+        expect(e.message, '登入已失效,請重新登入。');
+      }
+    });
+
+    test('422 的 detail 是物件陣列,不能直接丟給使用者看', () async {
+      final client = MockClient.streaming((_, __) async => _json({
+            'detail': [
+              {'loc': ['body', 'segments'], 'msg': 'field required'}
+            ]
+          }, 422));
+      try {
+        await _backend(client).putTranscript('m1', const [
+          TranscriptSegment(id: 's', text: '甲', isFinal: true),
+        ]);
+        fail('應該要丟 ApiException');
+      } on ApiException catch (e) {
+        expect(e.message, '請求失敗(422)。');
+        expect(e.message, isNot(contains('loc')));
+      }
     });
   });
 }

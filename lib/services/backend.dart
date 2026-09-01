@@ -173,6 +173,15 @@ abstract class Backend {
   });
 
   // ── 串流生成 ──
+  /// 整份覆寫逐字稿(對應 `PUT /meetings/{id}/transcript`)。
+  ///
+  /// **整組取代**:沒帶的段落等於刪除,順序即新的順序。用途是把使用者在 App 修好的
+  /// 錯字與說話者回存 —— server 存完會在背景重建向量索引,助理才會用新文字作答。
+  ///
+  /// 會丟 [ApiException]:錄音/轉錄中回 409(即時串流正在寫同一張表)、
+  /// 有空白段落回 400。
+  Future<void> putTranscript(String meetingId, List<TranscriptSegment> segments);
+
   /// 產生結構化摘要(SSE 串流)。
   Stream<SummaryChunk> summarize(String meetingId);
 

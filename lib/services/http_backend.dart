@@ -282,6 +282,32 @@ class HttpBackend implements Backend {
     });
   }
 
+  @override
+  Future<void> putTranscript(
+      String meetingId, List<TranscriptSegment> segments) {
+    return _guard(() async {
+      final r = await _client.put(
+        _uri('/meetings/$meetingId/transcript'),
+        headers: await _headers(),
+        body: jsonEncode({
+          'segments': [
+            for (final s in segments)
+              {
+                'text': s.text,
+                // 只帶 server 認得的欄位(它會忽略多的,但沒必要送)。
+                // null 也要帶:整組取代語意下,不帶等於把原本有的值清掉,
+                // 而這裡本來就是「這段沒有說話者/時間戳」的意思,一致。
+                'speaker': s.speaker,
+                'start_ms': s.startMs,
+                'end_ms': s.endMs,
+              },
+          ],
+        }),
+      );
+      _decode(r); // 只為了讓非 2xx 丟出 ApiException(帶 server 的 detail)
+    });
+  }
+
   // ── 摘要(SSE) ──
   @override
   Stream<SummaryChunk> summarize(String meetingId) async* {

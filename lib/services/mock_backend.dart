@@ -6,6 +6,7 @@ import '../models/meeting.dart';
 import '../models/summary.dart';
 import '../models/transcript_segment.dart';
 import '../models/transcription_config.dart';
+import '../core/network/api_exception.dart';
 import 'backend.dart';
 
 /// 記憶體內 mock 後端 —— 無 server 也能 demo 完整流程。
@@ -199,8 +200,13 @@ class MockBackend implements Backend {
   }
 
   @override
-  Future<List<TranscriptSegment>> getTranscript(String meetingId) =>
-      _delay(List.of(_transcripts[meetingId] ?? const []));
+  Future<List<TranscriptSegment>> getTranscript(String meetingId) {
+    transcriptFetches++;
+    return _delay(List.of(_transcripts[meetingId] ?? const []));
+  }
+
+  /// getTranscript 被呼叫的次數。測試用來確認某些操作沒有多打一次 server。
+  int transcriptFetches = 0;
 
   @override
   Future<MeetingSummary?> getSummary(String meetingId) =>
@@ -247,6 +253,24 @@ class MockBackend implements Backend {
       ];
     });
     return _delay(updated, 500);
+  }
+
+  @override
+  Future<void> putTranscript(
+      String meetingId, List<TranscriptSegment> segments) async {
+    final m = _meetings[meetingId];
+    if (m == null) throw StateError('not found');
+    // 與 server 一致的防呆,測試才測得到同樣的行為。
+    if (m.status != MeetingStatus.ready && m.status != MeetingStatus.error) {
+      throw ApiException('會議狀態為 ${m.status.name},請等轉錄完成後再編輯',
+          statusCode: 409);
+    }
+    if (segments.any((s) => s.text.trim().isEmpty)) {
+      throw ApiException('segments 內含空白文字;請先移除該段再送出',
+          statusCode: 400);
+    }
+    _transcripts[meetingId] = List.of(segments);
+    await _delay(null, 150);
   }
 
   @override

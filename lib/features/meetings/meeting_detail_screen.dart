@@ -15,6 +15,7 @@ import '../../providers/meeting_translation_controller.dart';
 import '../../providers/transcript_translation_controller.dart';
 import '../../providers/speaker_names_controller.dart';
 import '../../providers/transcript_edits_controller.dart';
+import '../../providers/transcript_sync_controller.dart';
 import '../../providers/upload_progress_controller.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
@@ -320,6 +321,7 @@ class _TranscriptTab extends ConsumerWidget {
         if (segments.isEmpty) return view;
         return Column(
           children: [
+            _SyncBanner(meetingId: meeting.id),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: Row(
@@ -390,6 +392,9 @@ class _TranscriptTab extends ConsumerWidget {
     }
     // 不要 invalidate:transcriptProvider 已經 watch 修訂,會自己重算。
     // 重抓逐字稿只會讓畫面閃一下並把捲動位置歸零(見 transcriptProvider 的說明)。
+
+    // 回存 server —— 只留本機的話,助理問答查到的還是舊文字。
+    await ref.read(transcriptSyncProvider(meetingId).notifier).push();
   }
 
   /// 開啟說話者面板:改名(套用整場)或把這一段指派給別人。
@@ -433,6 +438,9 @@ class _TranscriptTab extends ConsumerWidget {
         canonicalSpeakers: canonical,
       ),
     );
+
+    // 面板內可能改了好幾項(改名 + 指派),關閉時一次回存,不必每點一下就打 server。
+    await ref.read(transcriptSyncProvider(meetingId).notifier).push();
   }
 
   /// 匯出時一併帶上目前顯示的譯文,讓 .txt 與畫面上看到的雙語一致。
@@ -887,6 +895,77 @@ class _DeleteActionState extends ConsumerState<_DeleteAction> {
       tooltip: '刪除會議',
       icon: const Icon(Icons.delete_outline_rounded),
       onPressed: _confirmAndDelete,
+    );
+  }
+}
+
+/// 「修改尚未回存 server」的提示 + 重試。
+///
+/// 一定要顯示:未同步就代表助理仍會用舊文字作答 —— 使用者以為改好了,
+/// 問助理卻還是錯的,而且完全看不出原因。
+class _SyncBanner extends ConsumerWidget {
+  const _SyncBanner({required this.meetingId});
+
+  final String meetingId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sync = ref.watch(transcriptSyncProvider(meetingId));
+    // watch 這兩個,修訂被清空(同步成功)時橫幅才會跟著消失。
+    ref.watch(transcriptEditsProvider(meetingId));
+    ref.watch(speakerPrefsProvider(meetingId));
+    final pending =
+        ref.read(transcriptSyncProvider(meetingId).notifier).hasPending;
+
+    if (!pending && !sync.busy) return const SizedBox.shrink();
+
+    final scheme = Theme.of(context).colorScheme;
+    if (sync.busy) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+        child: Row(
+          children: [
+            const SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(strokeWidth: 2)),
+            const SizedBox(width: 8),
+            Text('同步修改到 server…',
+                style: TextStyle(fontSize: 12, color: scheme.outline)),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_rounded, size: 14, color: scheme.error),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              sync.error ?? '修改尚未回存,AI 助理仍會用舊的文字回答。',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: scheme.error,
+                  fontWeight: FontWeight.w600),
+              maxLines: 2,
+            ),
+          ),
+          TextButton(
+            onPressed: () =>
+                ref.read(transcriptSyncProvider(meetingId).notifier).push(),
+            style: TextButton.styleFrom(
+              foregroundColor: scheme.error,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('重試', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
     );
   }
 }

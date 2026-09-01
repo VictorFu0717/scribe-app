@@ -56,10 +56,27 @@ final meetingTagsProvider = FutureProvider<List<MeetingTag>>((ref) async {
 ///
 /// 需要重新向 server 取逐字稿時 invalidate 這個(下拉重新整理、重新轉錄)。
 /// 畫面請用 [transcriptProvider]。
-final rawTranscriptProvider =
-    FutureProvider.family<List<TranscriptSegment>, String>((ref, id) async {
-  return ref.watch(backendProvider).getTranscript(id);
-});
+final rawTranscriptProvider = AsyncNotifierProvider.family<
+    RawTranscriptController, List<TranscriptSegment>, String>(
+  RawTranscriptController.new,
+);
+
+class RawTranscriptController
+    extends FamilyAsyncNotifier<List<TranscriptSegment>, String> {
+  @override
+  Future<List<TranscriptSegment>> build(String meetingId) {
+    return ref.watch(backendProvider).getTranscript(meetingId);
+  }
+
+  /// 採用一份**已知等同 server 內容**的逐字稿(剛剛 PUT 成功的那份)。
+  ///
+  /// 用這個而不是 invalidate:invalidate 會重抓、期間進入 loading,畫面整份換成
+  /// 轉圈圈而捲動位置歸零(先前修過的問題)。既然剛寫進去的內容就是 server 的
+  /// 內容,沒有理由再抓一次。
+  void adopt(List<TranscriptSegment> segments) {
+    state = AsyncData(List.unmodifiable(segments));
+  }
+}
 
 /// 逐字稿(已完成的會議),已疊上本機的人工修訂。
 ///
