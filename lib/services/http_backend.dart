@@ -150,12 +150,19 @@ class HttpBackend implements Backend {
   }
 
   @override
-  Future<Meeting> createMeeting({required String title}) {
+  Future<Meeting> createMeeting({
+    required String title,
+    List<String>? tags,
+  }) {
     return _guard(() async {
       final r = await _client.post(
         _uri('/meetings'),
         headers: await _headers(),
-        body: jsonEncode({'title': title}),
+        body: jsonEncode({
+          'title': title,
+          // 空清單就不帶 —— 讓 payload 與「沒選標籤」時完全一致。
+          if (tags != null && tags.isNotEmpty) 'tags': tags,
+        }),
       );
       return Meeting.fromJson(_decode(r) as Map<String, dynamic>);
     });

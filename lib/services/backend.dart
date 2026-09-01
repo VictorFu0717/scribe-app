@@ -125,7 +125,12 @@ abstract class Backend {
   // ── Meetings CRUD ──
   Future<List<Meeting>> listMeetings();
   Future<Meeting> getMeeting(String id);
-  Future<Meeting> createMeeting({required String title});
+  /// 建立會議。[tags] 選填 —— server 的 `POST /meetings` 直接接受標籤,
+  /// 所以錄音前就選好的標籤不必等建立完再 PATCH 一次。
+  Future<Meeting> createMeeting({
+    required String title,
+    List<String>? tags,
+  });
   Future<void> deleteMeeting(String id);
 
   /// 更新會議的標題 / 標籤(對應 `PATCH /meetings/{id}`)。

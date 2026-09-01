@@ -8,6 +8,7 @@ import 'package:meeting_assistant/providers/settings_controller.dart';
 import 'package:meeting_assistant/services/backend.dart';
 import 'package:meeting_assistant/services/mock_backend.dart';
 import 'package:meeting_assistant/widgets/meeting_tags_row.dart';
+import 'package:meeting_assistant/widgets/tag_editor_row.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 在 fake async 之外跑 setup。
@@ -197,6 +198,30 @@ void main() {
     await _settle(tester);
     expect(find.textContaining('讀不到既有標籤'), findsOneWidget);
     expect(find.byType(TextField), findsOneWidget);
+  });
+
+  testWidgets('TagEditorRow:整組回傳,移除時給的是剩下的', (tester) async {
+    List<String>? got;
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.light(),
+      home: Scaffold(
+        body: TagEditorRow(
+          tags: const ['專案會議', '每週會議'],
+          onChanged: (t) => got = t,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    final chip = find
+        .ancestor(of: find.text('專案會議'), matching: find.byType(Row))
+        .first;
+    await tester.tap(find.descendant(
+        of: chip, matching: find.byIcon(Icons.close_rounded)));
+    await tester.pump();
+
+    expect(got, ['每週會議'],
+        reason: 'onChanged 一律給整組 —— 呼叫端(含 server PATCH)靠這個語意');
   });
 }
 

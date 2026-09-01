@@ -161,7 +161,13 @@ class RecordingController extends Notifier<RecordingState> {
   }
 
   /// 開始一場新錄音。回傳建立的 meetingId(失敗回 null)。
-  Future<String?> start({required String title}) async {
+  ///
+  /// [tags] 選填,直接在建立會議時帶上去 —— server 的 POST /meetings 支援,
+  /// 不必等建立完再 PATCH 一次。
+  Future<String?> start({
+    required String title,
+    List<String> tags = const [],
+  }) async {
     if (state.isActive) return state.meetingId;
     final backend = ref.read(backendProvider);
     final recorder = ref.read(audioRecorderProvider);
@@ -208,7 +214,7 @@ class RecordingController extends Notifier<RecordingState> {
       // Android:啟動麥克風型前景服務,讓鎖屏/背景能持續錄音(iOS 為 no-op)。
       await RecordingForegroundService.start(title: title);
 
-      final meeting = await backend.createMeeting(title: title);
+      final meeting = await backend.createMeeting(title: title, tags: tags);
 
       // 開 WS 連線並訂閱即時逐字稿(手機錄音一律即時串流)。
       {

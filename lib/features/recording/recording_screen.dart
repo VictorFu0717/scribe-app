@@ -22,6 +22,7 @@ import '../../widgets/level_meter.dart';
 import '../../widgets/recording_orb.dart';
 import '../../widgets/soft_card.dart';
 import '../../widgets/speaker_count_picker.dart';
+import '../../widgets/tag_editor_row.dart';
 import '../../widgets/transcript_view.dart';
 
 class RecordingScreen extends ConsumerStatefulWidget {
@@ -32,6 +33,10 @@ class RecordingScreen extends ConsumerStatefulWidget {
 }
 
 class _RecordingScreenState extends ConsumerState<RecordingScreen> {
+  /// 開始錄音前選好的標籤。錄音開始時一併帶去建立會議 —— 開會當下就知道這是
+  /// 什麼類型的會議,不必等錄完再回頭補。
+  List<String> _tags = const [];
+
   late final TextEditingController _titleCtrl =
       TextEditingController(text: '會議 ${Formatters.dateTime(DateTime.now())}');
 
@@ -44,7 +49,9 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
   Future<void> _start() async {
     final title =
         _titleCtrl.text.trim().isEmpty ? '未命名會議' : _titleCtrl.text.trim();
-    await ref.read(recordingControllerProvider.notifier).start(title: title);
+    await ref
+        .read(recordingControllerProvider.notifier)
+        .start(title: title, tags: _tags);
   }
 
   Future<void> _stop() async {
@@ -166,7 +173,16 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
+          // 標籤(選填)。助理問答時會先用標籤挑出候選會議,再從中找答案。
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: TagEditorRow(
+              tags: _tags,
+              onChanged: (t) => setState(() => _tags = t),
+            ),
+          ),
+          const SizedBox(height: 14),
           _ModeChips(settings: settings),
           const Spacer(),
           RecordingOrb(
@@ -217,6 +233,35 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
             style: TextStyle(color: scheme.outline),
             maxLines: 1,
             overflow: TextOverflow.ellipsis),
+        // 錄音中僅顯示不可改 —— 標籤已隨會議建立送出,要調整可在錄完後的
+        // 會議詳情頁做(那裡本來就有完整的編輯)。
+        if (_tags.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                for (final t in _tags)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 9, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: scheme.primaryContainer.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(t,
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.onPrimaryContainer)),
+                  ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),

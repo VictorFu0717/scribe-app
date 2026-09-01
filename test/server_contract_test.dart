@@ -330,6 +330,46 @@ void main() {
       expect(m.tags, isEmpty);
     });
 
+    test('POST /meetings 可帶 tags(錄音前就選好,不必再 PATCH 一次)', () async {
+      late Map<String, dynamic> body;
+      final client = MockClient.streaming((req, bodyStream) async {
+        body = jsonDecode(await bodyStream.bytesToString())
+            as Map<String, dynamic>;
+        return _json({
+          'id': 'm1',
+          'title': '產品週會',
+          'created_at': '2026-09-01T10:00:00Z',
+          'status': 'recording',
+          'tags': ['專案會議'],
+        });
+      });
+      final m = await _backend(client)
+          .createMeeting(title: '產品週會', tags: ['專案會議']);
+      expect(body['title'], '產品週會');
+      expect(body['tags'], ['專案會議']);
+      expect(m.tags, ['專案會議']);
+    });
+
+    test('沒選標籤時 POST 不帶 tags 欄位', () async {
+      late Map<String, dynamic> body;
+      final client = MockClient.streaming((req, bodyStream) async {
+        body = jsonDecode(await bodyStream.bytesToString())
+            as Map<String, dynamic>;
+        return _json({
+          'id': 'm1',
+          'title': 't',
+          'created_at': '2026-09-01T10:00:00Z',
+          'status': 'recording',
+        });
+      });
+      await _backend(client).createMeeting(title: 't');
+      expect(body.containsKey('tags'), isFalse);
+
+      // 空清單也不該帶 —— payload 要和「沒選」時完全一致。
+      await _backend(client).createMeeting(title: 't', tags: const []);
+      expect(body.containsKey('tags'), isFalse);
+    });
+
     test('meeting JSON 的 tags 被解析;舊資料沒有這個欄位時為空', () {
       final withTags = Meeting.fromJson({
         'id': 'm1',

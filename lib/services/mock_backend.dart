@@ -123,12 +123,16 @@ class MockBackend implements Backend {
       _delay(_meetings[id] ?? (throw StateError('not found')));
 
   @override
-  Future<Meeting> createMeeting({required String title}) {
+  Future<Meeting> createMeeting({
+    required String title,
+    List<String>? tags,
+  }) {
     final m = Meeting(
       id: _nextId(),
       title: title,
       createdAt: DateTime.now(),
       status: MeetingStatus.recording,
+      tags: tags == null ? const [] : _normTags(tags),
     );
     _meetings[m.id] = m;
     _transcripts[m.id] = [];
