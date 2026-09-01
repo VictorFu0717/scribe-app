@@ -55,6 +55,7 @@ class Meeting {
     this.hasSummary = false,
     this.remoteAudioUrl,
     this.localAudioPath,
+    this.tags = const [],
   });
 
   final String id;
@@ -70,6 +71,12 @@ class Meeting {
   /// 本地錄音檔路徑(錄製當下暫存,用於播放與防斷線)。
   final String? localAudioPath;
 
+  /// 使用者自訂標籤(選填,可多個)。例:「專案會議」「每週會議」。
+  ///
+  /// server 用它縮小助理問答的檢索範圍 —— 在向量檢索當下就限制候選會議,
+  /// 所以標籤下得準,回答就準。
+  final List<String> tags;
+
   Duration? get duration =>
       durationSec == null ? null : Duration(seconds: durationSec!);
 
@@ -80,6 +87,7 @@ class Meeting {
     bool? hasSummary,
     String? remoteAudioUrl,
     String? localAudioPath,
+    List<String>? tags,
   }) {
     return Meeting(
       id: id,
@@ -90,6 +98,7 @@ class Meeting {
       hasSummary: hasSummary ?? this.hasSummary,
       remoteAudioUrl: remoteAudioUrl ?? this.remoteAudioUrl,
       localAudioPath: localAudioPath ?? this.localAudioPath,
+      tags: tags ?? this.tags,
     );
   }
 
@@ -103,6 +112,11 @@ class Meeting {
       status: MeetingStatus.fromString(json['status'] as String?),
       hasSummary: (json['has_summary'] as bool?) ?? (json['summary'] != null),
       remoteAudioUrl: json['audio_url'] as String?,
+      tags: (json['tags'] as List?)
+              ?.whereType<String>()
+              .where((t) => t.isNotEmpty)
+              .toList() ??
+          const [],
     );
   }
 
@@ -114,5 +128,6 @@ class Meeting {
         'status': status.name,
         'has_summary': hasSummary,
         if (remoteAudioUrl != null) 'audio_url': remoteAudioUrl,
+        'tags': tags,
       };
 }

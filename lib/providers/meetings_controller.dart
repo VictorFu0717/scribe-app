@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/meeting.dart';
 import '../models/transcript_segment.dart';
+import '../services/backend.dart';
 import '../services/speaker_name_store.dart';
 import '../services/transcript_edit_store.dart';
 import 'service_providers.dart';
@@ -41,6 +42,14 @@ class MeetingsListController extends AsyncNotifier<List<Meeting>> {
 final meetingProvider =
     FutureProvider.family<Meeting, String>((ref, id) async {
   return ref.watch(backendProvider).getMeeting(id);
+});
+
+/// 這個使用者用過的所有標籤(給輸入時的建議清單)。
+///
+/// 標籤要能重複使用才有篩選價值 —— 每次自由打字很容易打出「專案會議」與
+/// 「專案會譯」這種近似但不同的標籤,助理就篩不到一起。
+final meetingTagsProvider = FutureProvider<List<MeetingTag>>((ref) async {
+  return ref.watch(backendProvider).listTags();
 });
 
 /// 逐字稿的原始內容(server 回來的,未套用本機修訂)。

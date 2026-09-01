@@ -18,6 +18,7 @@ import '../../providers/transcript_edits_controller.dart';
 import '../../providers/upload_progress_controller.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
+import '../../widgets/meeting_tags_row.dart';
 import '../../services/audio_convert.dart';
 import '../../services/background_task.dart';
 import '../../services/speaker_name_store.dart';
@@ -159,6 +160,9 @@ class _Body extends ConsumerWidget {
             ],
           ),
         ),
+        // 標籤(選填)。存在 server —— 助理問答時會先用標籤挑出候選會議再找答案,
+        // 所以這個一定要回流到 server,不能像文字修訂那樣只留本機。
+        MeetingTagsRow(meeting: meeting),
         if (localPath != null || remoteUri != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),

@@ -162,6 +162,45 @@ class HttpBackend implements Backend {
   }
 
   @override
+  Future<Meeting> updateMeeting(
+    String id, {
+    String? title,
+    List<String>? tags,
+  }) {
+    return _guard(() async {
+      final r = await _client.patch(
+        _uri('/meetings/$id'),
+        headers: await _headers(),
+        // 只帶要改的欄位 —— server 的 PATCH 語意是「沒帶的不動」,
+        // 若無條件帶 title: null 反而可能被當成要清空。
+        body: jsonEncode({
+          if (title != null) 'title': title,
+          if (tags != null) 'tags': tags,
+        }),
+      );
+      return Meeting.fromJson(_decode(r) as Map<String, dynamic>);
+    });
+  }
+
+  @override
+  Future<List<MeetingTag>> listTags() {
+    return _guard(() async {
+      final r = await _client.get(
+        _uri('/meetings/tags'),
+        headers: await _headers(),
+      );
+      final decoded = _decode(r);
+      final list = decoded is Map ? decoded['tags'] : decoded;
+      if (list is! List) return const <MeetingTag>[];
+      return list
+          .whereType<Map>()
+          .map((e) => MeetingTag.fromJson(e.cast<String, dynamic>()))
+          .where((t) => t.tag.isNotEmpty)
+          .toList();
+    });
+  }
+
+  @override
   Future<void> deleteMeeting(String id) {
     return _guard(() async {
       final r = await _client.delete(_uri('/meetings/$id'),

@@ -136,6 +136,57 @@ class MockBackend implements Backend {
   }
 
   @override
+  Future<Meeting> updateMeeting(
+    String id, {
+    String? title,
+    List<String>? tags,
+  }) {
+    final m = _meetings[id];
+    if (m == null) throw StateError('not found');
+    // 與 server 一致:去空白、去重(不分大小寫但保留原寫法)、限長。
+    final updated = m.copyWith(
+      title: title,
+      tags: tags == null ? null : _normTags(tags),
+    );
+    _meetings[id] = updated;
+    return _delay(updated, 150);
+  }
+
+  @override
+  Future<List<MeetingTag>> listTags() {
+    final counts = <String, int>{};
+    final display = <String, String>{};
+    for (final m in _meetings.values) {
+      for (final t in m.tags) {
+        final k = t.toLowerCase();
+        counts[k] = (counts[k] ?? 0) + 1;
+        display.putIfAbsent(k, () => t);
+      }
+    }
+    final out = counts.entries
+        .map((e) => MeetingTag(tag: display[e.key]!, count: e.value))
+        .toList()
+      ..sort((a, b) => b.count != a.count
+          ? b.count.compareTo(a.count)
+          : a.tag.compareTo(b.tag));
+    return _delay(out, 150);
+  }
+
+  /// 與 server 的 norm_tags 對齊(去空白 / 去重不分大小寫 / 單標籤 40 字 / 最多 20 個)。
+  static List<String> _normTags(List<String> tags) {
+    final out = <String>[];
+    final seen = <String>{};
+    for (final raw in tags) {
+      final t = raw.trim();
+      final capped = t.length > 40 ? t.substring(0, 40) : t;
+      if (capped.isEmpty || !seen.add(capped.toLowerCase())) continue;
+      out.add(capped);
+      if (out.length == 20) break;
+    }
+    return out;
+  }
+
+  @override
   Future<void> deleteMeeting(String id) {
     _meetings.remove(id);
     _transcripts.remove(id);

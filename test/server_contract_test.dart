@@ -252,4 +252,114 @@ void main() {
     expect(rawBody, contains('true'));
     expect(rawBody, contains('name="file"'));
   });
+
+  // ── 會議標籤(server commit b965da6)──
+  //
+  // 契約直接取自 server repo 的 app/routers/meetings.py 與 app/db.py:
+  //   GET   /meetings/tags        → {"tags":[{"tag":..,"count":..}]}
+  //   PATCH /meetings/{id}        → 更新後的 meeting;沒帶的欄位不動
+  //   meeting JSON 多了 "tags": [...]
+  group('會議標籤', () {
+    test('GET /meetings/tags 解析成 MeetingTag,並依 server 的排序原樣保留', () async {
+      late Uri seen;
+      final client = MockClient.streaming((req, _) async {
+        seen = req.url;
+        return _json({
+          'tags': [
+            {'tag': '專案會議', 'count': 5},
+            {'tag': '每週會議', 'count': 2},
+          ]
+        });
+      });
+      final tags = await _backend(client).listTags();
+      expect(seen.path, '/meetings/tags');
+      expect(tags.map((t) => t.tag), ['專案會議', '每週會議']);
+      expect(tags.first.count, 5);
+    });
+
+    test('GET /meetings/tags 回傳空清單時不炸', () async {
+      final client = MockClient.streaming((_, __) async => _json({'tags': []}));
+      expect(await _backend(client).listTags(), isEmpty);
+    });
+
+    test('PATCH 只帶要改的欄位 —— server 語意是「沒帶的不動」', () async {
+      late String method;
+      late Uri url;
+      late Map<String, dynamic> body;
+      final client = MockClient.streaming((req, bodyStream) async {
+        method = req.method;
+        url = req.url;
+        body = jsonDecode(await bodyStream.bytesToString())
+            as Map<String, dynamic>;
+        return _json({
+          'id': 'm1',
+          'title': 't',
+          'created_at': '2026-09-01T10:00:00Z',
+          'status': 'ready',
+          'tags': ['專案會議'],
+        });
+      });
+
+      final m = await _backend(client)
+          .updateMeeting('m1', tags: ['專案會議']);
+      expect(method, 'PATCH');
+      expect(url.path, '/meetings/m1');
+      expect(body.containsKey('title'), isFalse,
+          reason: '沒有要改標題就不能帶 title —— 帶 null 可能被當成要清空');
+      expect(body['tags'], ['專案會議']);
+      expect(m.tags, ['專案會議']);
+    });
+
+    test('PATCH 帶空陣列 = 清空標籤(不是「不動」)', () async {
+      late Map<String, dynamic> body;
+      final client = MockClient.streaming((req, bodyStream) async {
+        body = jsonDecode(await bodyStream.bytesToString())
+            as Map<String, dynamic>;
+        return _json({
+          'id': 'm1',
+          'title': 't',
+          'created_at': '2026-09-01T10:00:00Z',
+          'status': 'ready',
+          'tags': [],
+        });
+      });
+      final m = await _backend(client).updateMeeting('m1', tags: []);
+      expect(body['tags'], isEmpty);
+      expect(body.containsKey('tags'), isTrue,
+          reason: '清空必須把 tags 送出去,漏掉就變成「不動」');
+      expect(m.tags, isEmpty);
+    });
+
+    test('meeting JSON 的 tags 被解析;舊資料沒有這個欄位時為空', () {
+      final withTags = Meeting.fromJson({
+        'id': 'm1',
+        'title': 't',
+        'created_at': '2026-09-01T10:00:00Z',
+        'status': 'ready',
+        'tags': ['專案會議', '每週會議'],
+      });
+      expect(withTags.tags, ['專案會議', '每週會議']);
+
+      // server 說既有 DB 免遷移,所以舊會議可能完全沒有 tags 欄位。
+      final legacy = Meeting.fromJson({
+        'id': 'm2',
+        'title': 't',
+        'created_at': '2026-09-01T10:00:00Z',
+        'status': 'ready',
+      });
+      expect(legacy.tags, isEmpty);
+    });
+
+    test('tags 欄位含非字串或空字串時濾掉,不產生垃圾標籤', () {
+      // server 自己踩過 str(None) 變成標籤「None」的坑,App 端也別把髒資料放進來。
+      final m = Meeting.fromJson({
+        'id': 'm1',
+        'title': 't',
+        'created_at': '2026-09-01T10:00:00Z',
+        'status': 'ready',
+        'tags': ['專案會議', '', null, 42, '每週會議'],
+      });
+      expect(m.tags, ['專案會議', '每週會議']);
+    });
+  });
 }

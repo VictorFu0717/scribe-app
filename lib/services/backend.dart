@@ -16,6 +16,19 @@ class SummaryChunk {
   final bool done;
 }
 
+/// 一個標籤與其會議數(對應 `GET /meetings/tags`)。
+class MeetingTag {
+  const MeetingTag({required this.tag, required this.count});
+
+  final String tag;
+  final int count;
+
+  factory MeetingTag.fromJson(Map<String, dynamic> json) => MeetingTag(
+        tag: (json['tag'] as String?) ?? '',
+        count: (json['count'] as num?)?.toInt() ?? 0,
+      );
+}
+
 /// 助理聊天 SSE 串流的一個 token 片段。
 class ChatChunk {
   const ChatChunk({this.textDelta, this.done = false});
@@ -114,6 +127,22 @@ abstract class Backend {
   Future<Meeting> getMeeting(String id);
   Future<Meeting> createMeeting({required String title});
   Future<void> deleteMeeting(String id);
+
+  /// 更新會議的標題 / 標籤(對應 `PATCH /meetings/{id}`)。
+  ///
+  /// PATCH 語意:沒帶的欄位不動。[tags] 傳空陣列 = 清空標籤;傳 null = 不動。
+  /// 標籤是**整組覆寫**,不是新增。
+  Future<Meeting> updateMeeting(
+    String id, {
+    String? title,
+    List<String>? tags,
+  });
+
+  /// 這個使用者用過的所有標籤 + 各自的會議數(對應 `GET /meetings/tags`)。
+  ///
+  /// 給 App 做輸入時的建議清單 —— 標籤要能重複使用才有篩選價值,
+  /// 每次自由打字很容易打出「專案會議」與「專案會譯」這種近似但不同的標籤。
+  Future<List<MeetingTag>> listTags();
 
   // ── 逐字稿 / 摘要讀取 ──
   Future<List<TranscriptSegment>> getTranscript(String meetingId);
