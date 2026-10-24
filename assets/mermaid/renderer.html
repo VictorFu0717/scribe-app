@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=4, user-scalable=yes">
+<style>
+  :root { color-scheme: light dark; }
+  html, body {
+    margin: 0; padding: 0;
+    background: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+  #wrap {
+    padding: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100%;
+    box-sizing: border-box;
+  }
+  /* 圖寬度跟著容器,過寬時自動縮小 —— 手機螢幕窄,流程圖常常很寬。 */
+  #wrap svg { max-width: 100%; height: auto; }
+  #err {
+    display: none;
+    font: 13px -apple-system, "Helvetica Neue", sans-serif;
+    padding: 12px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-all;
+  }
+</style>
+<script src="mermaid.min.js"></script>
+</head>
+<body>
+<div id="wrap"></div>
+<pre id="err"></pre>
+<script>
+  // 與 App 溝通:渲染完回報實際高度,Flutter 端據此調整 WebView 大小 ——
+  // 圖的高度事先不知道,給固定高度不是被裁掉就是留一大塊空白。
+  function post(msg) {
+    try { DiagramChannel.postMessage(JSON.stringify(msg)); } catch (e) {}
+  }
+
+  function reportSize() {
+    const svg = document.querySelector('#wrap svg');
+    const h = svg ? Math.ceil(svg.getBoundingClientRect().height) + 16
+                  : Math.ceil(document.body.scrollHeight);
+    post({ type: 'size', height: h });
+  }
+
+  async function render(code, dark) {
+    const wrap = document.getElementById('wrap');
+    const err = document.getElementById('err');
+    err.style.display = 'none';
+    wrap.innerHTML = '';
+    try {
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',      // 圖的原始碼是 LLM 產的,不給它執行 JS 的機會
+        theme: dark ? 'dark' : 'default',
+        fontFamily: '-apple-system, "PingFang TC", "Noto Sans TC", sans-serif',
+        flowchart: { useMaxWidth: true, htmlLabels: true },
+      });
+      const { svg } = await mermaid.render('d' + Date.now(), code);
+      wrap.innerHTML = svg;
+      post({ type: 'ok' });
+    } catch (e) {
+      // 不要留白畫面 —— 讓 App 顯示「這張圖畫不出來」並提供原始碼。
+      err.textContent = (e && e.message) ? e.message : String(e);
+      err.style.display = 'block';
+      post({ type: 'error', message: err.textContent });
+    }
+    requestAnimationFrame(reportSize);
+  }
+
+  window.renderDiagram = render;
+  window.addEventListener('resize', reportSize);
+</script>
+</body>
+</html>

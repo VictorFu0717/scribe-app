@@ -3,6 +3,7 @@ import 'dart:async';
 import '../models/auth_token.dart';
 import '../models/chat_message.dart';
 import '../models/meeting.dart';
+import '../models/meeting_diagram.dart';
 import '../models/summary.dart';
 import '../models/transcript_segment.dart';
 import '../models/transcription_config.dart';
@@ -305,6 +306,30 @@ class MockBackend implements Backend {
   }) async* {
     final q = messages.lastWhere((m) => m.isUser,
         orElse: () => ChatMessage(role: ChatRole.user, content: '')).content;
+
+    // 使用者要圖時也回一張 —— 無 server 時才能完整看到圖表流程。
+    if (RegExp(r'圖|流程|關係|視覺化|diagram').hasMatch(q)) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      yield const ChatChunk(
+        diagram: MeetingDiagram(
+          kind: 'flow',
+          code: 'flowchart TD\n'
+              '  n1["需求確認"] --> n2{"預算足夠?"}\n'
+              '  n2 -->|"是"| n3["進入開發"]\n'
+              '  n2 -->|"否"| n4["縮減範圍、重新評估"]\n'
+              '  n3 --> n5["上線"]',
+          source: 'summary',
+        ),
+      );
+      const note = '這張流程圖呈現從需求確認到上線的決策路徑,其中預算是關鍵分岔點。';
+      for (var i = 0; i < note.length; i += 3) {
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+        yield ChatChunk(
+            textDelta: note.substring(i, (i + 3).clamp(0, note.length)));
+      }
+      yield const ChatChunk(done: true);
+      return;
+    }
     final answer =
         '<think>使用者想了解「$q」。我從已索引的會議逐字稿與摘要中檢索相關段落再作答。</think>'
         '根據過去會議紀錄,關於「$q」的重點是:團隊已定調將所有 AI/ML 放在公司 server,'

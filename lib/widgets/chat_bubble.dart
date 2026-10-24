@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/theme/app_style.dart';
 import '../models/chat_message.dart';
+import 'diagram_card.dart';
 
 /// 聊天氣泡。assistant 訊息可展開 `<think>` 推理內容(預設隱藏)。
 class ChatBubble extends StatefulWidget {
@@ -27,7 +28,9 @@ class _ChatBubbleState extends State<ChatBubble> {
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
-            maxWidth: MediaQuery.sizeOf(context).width * 0.82),
+            // 有圖時放寬 —— 流程圖在 82% 寬度下字會小到看不清。
+            maxWidth: MediaQuery.sizeOf(context).width *
+                (m.diagrams.isEmpty ? 0.82 : 0.95)),
         margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 12),
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
         decoration: BoxDecoration(
@@ -83,13 +86,16 @@ class _ChatBubbleState extends State<ChatBubble> {
                           color: scheme.onSurfaceVariant)),
                 ),
             ],
-            if (m.content.isEmpty && m.isStreaming)
+            // 圖可能比文字先到(工具先跑完才輪到 LLM 講話),所以內容空白時
+            // 不是只顯示打字動畫 —— 有圖就先把圖顯示出來。
+            if (m.content.isEmpty && m.isStreaming && m.diagrams.isEmpty)
               const _TypingDots()
-            else
+            else if (m.content.isNotEmpty)
               SelectableText(
                 m.content,
                 style: TextStyle(color: textColor, fontSize: 15, height: 1.45),
               ),
+            for (final d in m.diagrams) DiagramCard(diagram: d),
           ],
         ),
       ),

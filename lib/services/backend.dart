@@ -1,6 +1,7 @@
 import '../models/auth_token.dart';
 import '../models/chat_message.dart';
 import '../models/meeting.dart';
+import '../models/meeting_diagram.dart';
 import '../models/summary.dart';
 import '../models/transcript_segment.dart';
 import '../models/transcription_config.dart';
@@ -29,10 +30,17 @@ class MeetingTag {
       );
 }
 
-/// 助理聊天 SSE 串流的一個 token 片段。
+/// 助理聊天 SSE 串流的一個片段。
+///
+/// 多數片段是文字(`textDelta`);助理呼叫畫圖工具時,server 會另外送一個
+/// 獨立的 diagram 事件 —— 那會變成這裡的 [diagram]。
 class ChatChunk {
-  const ChatChunk({this.textDelta, this.done = false});
+  const ChatChunk({this.textDelta, this.diagram, this.done = false});
   final String? textDelta;
+
+  /// 助理產生的圖(Mermaid);這個片段不是圖時為 null。
+  final MeetingDiagram? diagram;
+
   final bool done;
 }
 

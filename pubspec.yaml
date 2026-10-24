@@ -57,6 +57,9 @@ dependencies:
   file_selector: ^1.1.0
   # 裝置內即時翻譯(離線、零延遲、免 server 負載);需 iOS 15.5+ / Android minSdk 21
   google_mlkit_translation: ^0.14.0
+  # 助理畫的圖是 Mermaid 原始碼,用 WebView 載入打包在 App 內的 mermaid.js 渲染。
+  # 官方套件(flutter.dev),無 win32 相依,不會重演 share_plus/file_picker 那類版本衝突。
+  webview_flutter: ^4.14.1
   # 螢幕常亮改為自行以 MethodChannel 實作(lib/services/keep_awake.dart),不用 wakelock_plus:
   # 1.6.0~1.7.0 的 Android 端用 root-package import,在內建 Kotlin 下編譯失敗;
   # 能編譯的 1.5.x 又鎖 win32 ^5,與 share_plus 13.x(win32 ^6)相衝。
@@ -86,6 +89,10 @@ flutter:
   assets:
     # OpenCC s2twp 字典(簡→繁台灣正體):ML Kit 中文只輸出簡體,譯文需再轉繁體。
     - assets/dict/s2twp.txt
+    # Mermaid 渲染器(助理產的流程圖/關係圖)。**打包進 App 而非吃 CDN**:
+    # server 在內網(Tailscale/OpenVPN),使用者常常連不到外網。
+    - assets/mermaid/mermaid.min.js
+    - assets/mermaid/renderer.html
 
   # To add assets to your application, add an assets section, like this:
   # assets:

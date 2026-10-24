@@ -6,6 +6,7 @@ import '../core/config/app_config.dart';
 import '../core/network/api_exception.dart';
 import '../core/utils/think_parser.dart';
 import '../models/chat_message.dart';
+import '../models/meeting_diagram.dart';
 import 'service_providers.dart';
 
 class AssistantState {
@@ -80,6 +81,7 @@ class AssistantController extends FamilyNotifier<AssistantState, String> {
             thinking: parser.hasThinking ? parser.thinking : null,
           );
         }
+        if (chunk.diagram != null) _addDiagram(chunk.diagram!);
         if (chunk.done) _finish(parser);
       },
       onError: (e) {
@@ -103,6 +105,17 @@ class AssistantController extends FamilyNotifier<AssistantState, String> {
   void clear() {
     _sub?.cancel();
     state = const AssistantState();
+  }
+
+  /// 把助理畫的圖掛到目前這則回答上。
+  ///
+  /// 圖可能在文字之前就到(工具先跑完才輪到 LLM 講話),所以不能假設
+  /// 訊息已經有內容。
+  void _addDiagram(MeetingDiagram diagram) {
+    final msgs = _cloneMessages();
+    if (msgs.isEmpty) return;
+    msgs.last.diagrams.add(diagram);
+    state = state.copyWith(messages: msgs);
   }
 
   void _updateLast({required String content, String? thinking}) {

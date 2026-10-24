@@ -11,6 +11,7 @@ import '../core/storage/token_storage.dart';
 import '../models/auth_token.dart';
 import '../models/chat_message.dart';
 import '../models/meeting.dart';
+import '../models/meeting_diagram.dart';
 import '../models/summary.dart';
 import '../models/transcript_segment.dart';
 import '../models/transcription_config.dart';
@@ -381,10 +382,28 @@ class HttpBackend implements Backend {
         yield const ChatChunk(done: true);
         return;
       }
+      // 圖表走自己的事件({"type":"diagram",...}),不是文字 delta。
+      final diagram = _parseDiagram(e.data);
+      if (diagram != null) {
+        yield ChatChunk(diagram: diagram);
+        continue;
+      }
       final delta = _parseChatDelta(e.data);
       if (delta != null && delta.isNotEmpty) yield ChatChunk(textDelta: delta);
     }
     yield const ChatChunk(done: true);
+  }
+
+  /// 解析 diagram 事件;不是圖就回 null(交給一般的文字解析)。
+  MeetingDiagram? _parseDiagram(String data) {
+    if (!data.trimLeft().startsWith('{')) return null;
+    try {
+      final j = jsonDecode(data);
+      if (j is! Map<String, dynamic>) return null;
+      return MeetingDiagram.fromJson(j);
+    } catch (_) {
+      return null;
+    }
   }
 
   String? _parseChatDelta(String data) {
