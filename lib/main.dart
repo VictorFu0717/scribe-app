@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
+import 'providers/service_providers.dart';
 import 'providers/settings_controller.dart';
 import 'providers/translation_models_controller.dart';
 import 'services/audio_session_config.dart';
@@ -23,9 +25,17 @@ Future<void> main() async {
 
   final prefs = await SharedPreferences.getInstance();
 
+  // 錄音檔路徑以 Documents 為基準(iOS 每次更新 App 這個路徑都會變,
+  // 見 LocalRecordingStore)。取不到就維持舊行為,不擋 App 啟動。
+  String? documentsDir;
+  try {
+    documentsDir = (await getApplicationDocumentsDirectory()).path;
+  } catch (_) {}
+
   final container = ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
+      documentsDirProvider.overrideWithValue(documentsDir),
     ],
   );
 
