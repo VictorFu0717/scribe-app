@@ -97,6 +97,8 @@ class SpeakerNameStore {
     }
   }
 
+  Future<void> clear(String meetingId) => _prefs.remove(_key(meetingId));
+
   Future<void> save(String meetingId, SpeakerPrefs prefs) {
     if (prefs.isEmpty) return _prefs.remove(_key(meetingId));
     return _prefs.setString(

@@ -8,6 +8,7 @@ import '../../providers/translation_models_controller.dart';
 import '../../services/on_device_translator.dart';
 import '../../widgets/language_picker.dart';
 import '../../widgets/speaker_count_picker.dart';
+import 'storage_cleanup_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -199,6 +200,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 '各場會議互不影響。翻譯在手機上離線進行,每個語言模型約 30MB,'
                 'App 啟動時會自動先備妥中文與英文。'),
           ],
+
+          const Divider(),
+          _header('儲存空間'),
+          ListTile(
+            leading: const Icon(Icons.cleaning_services_outlined),
+            title: const Text('清理錄音檔'),
+            subtitle: const Text('找出已刪除會議留下的錄音,釋放手機空間'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const StorageCleanupScreen())),
+          ),
 
           const Divider(),
           _header('關於'),

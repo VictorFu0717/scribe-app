@@ -159,6 +159,92 @@ class LocalRecordingStore {
 
   Future<void> save(String meetingId, String path) =>
       _prefs.setString(_key(meetingId), _relative(path) ?? path);
+
+  /// 錄音 / 匯入檔的命名規則:rec_<會議 id>.<副檔名>、import_<會議 id>.<副檔名>。
+  static final _fileRe = RegExp(r'^(rec|import)_(.+)\.([A-Za-z0-9]+)$');
+
+  /// Documents 裡所有錄音 / 匯入檔(依檔名辨識所屬會議),新的在前。
+  List<LocalAudioFile> allFiles() {
+    final docs = _docs;
+    if (docs == null) return const [];
+    final dir = Directory(docs);
+    if (!dir.existsSync()) return const [];
+    final out = <LocalAudioFile>[];
+    for (final e in dir.listSync(followLinks: false)) {
+      if (e is! File) continue;
+      final name = e.path.substring(e.path.lastIndexOf(Platform.pathSeparator) + 1);
+      final m = _fileRe.firstMatch(name);
+      if (m == null) continue;
+      try {
+        final stat = e.statSync();
+        out.add(LocalAudioFile(
+          file: e,
+          meetingId: m.group(2)!,
+          imported: m.group(1) == 'import',
+          size: stat.size,
+          modified: stat.modified,
+        ));
+      } catch (_) {
+        // 讀不到屬性的檔案略過(可能剛好被刪)
+      }
+    }
+    out.sort((a, b) => b.modified.compareTo(a.modified));
+    return out;
+  }
+
+  /// 這場會議在手機上的所有檔案:壓縮前後兩種格式、錄到一半留下的 .pcm,
+  /// 以及記錄指向 Documents 以外的檔案。
+  ///
+  /// 會議 id 必須**完全相同**才算 —— rec_abc_x.wav 不屬於會議 abc。
+  List<File> filesFor(String meetingId) {
+    final files = <String, File>{
+      for (final f in allFiles())
+        if (f.meetingId == meetingId) f.file.path: f.file,
+    };
+    final stored = pathFor(meetingId);
+    if (stored != null && File(stored).existsSync()) files[stored] = File(stored);
+    return files.values.toList();
+  }
+
+  /// 只移除記錄,不動檔案(清理時檔案已個別刪除)。
+  Future<void> forget(String meetingId) => _prefs.remove(_key(meetingId));
+
+  /// 刪除這場會議在手機上的錄音檔與記錄,回傳刪掉的檔案數。
+  Future<int> deleteFor(String meetingId) async {
+    var deleted = 0;
+    for (final f in filesFor(meetingId)) {
+      try {
+        await f.delete();
+        deleted++;
+      } catch (_) {
+        // 個別檔案刪不掉不影響其他的;日後可在「清理錄音檔」再處理
+      }
+    }
+    await _prefs.remove(_key(meetingId));
+    return deleted;
+  }
+}
+
+/// 手機上的一個錄音 / 匯入音檔。
+class LocalAudioFile {
+  const LocalAudioFile({
+    required this.file,
+    required this.meetingId,
+    required this.imported,
+    required this.size,
+    required this.modified,
+  });
+
+  final File file;
+
+  /// 依檔名辨識出的會議 id。
+  final String meetingId;
+
+  /// true = 從其他 App 或檔案匯入的音檔(import_ 開頭),false = App 錄的。
+  final bool imported;
+
+  final int size;
+  final DateTime modified;
 }
 
 /// 逐字稿的人工修訂(辨識有誤時自行改正)。以 SharedPreferences 持久化。
@@ -220,6 +306,8 @@ class MeetingTranslationStore {
       target: parts[2],
     );
   }
+
+  Future<void> clear(String meetingId) => _prefs.remove(_key(meetingId));
 
   Future<void> save(String meetingId, MeetingTranslationPref pref) =>
       _prefs.setString(_key(meetingId),

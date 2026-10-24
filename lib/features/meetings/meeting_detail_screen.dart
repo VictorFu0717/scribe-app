@@ -843,7 +843,7 @@ class _DeleteActionState extends ConsumerState<_DeleteAction> {
       builder: (ctx) => AlertDialog(
         title: const Text('刪除會議'),
         content: Text(
-            '確定刪除「${widget.title}」?\n逐字稿、摘要與檢索索引都會從 server 一併刪除,無法復原。'),
+            '確定刪除「${widget.title}」?\n逐字稿、摘要與檢索索引會從 server 刪除,手機上的錄音檔也會一併刪除,無法復原。'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),

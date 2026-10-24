@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/meeting.dart';
 import '../models/transcript_segment.dart';
 import '../services/backend.dart';
+import '../services/local_meeting_data.dart';
 import '../services/speaker_name_store.dart';
 import '../services/transcript_edit_store.dart';
 import 'service_providers.dart';
@@ -32,8 +33,13 @@ class MeetingsListController extends AsyncNotifier<List<Meeting>> {
     return meeting;
   }
 
+  /// 刪除會議:先刪 server,成功後再清掉手機上的錄音檔與本機記錄。
+  ///
+  /// 順序不能反:server 刪失敗(離線、逾時)時要保留錄音,免得 server 上的
+  /// 會議還在、錄音卻已經沒了。
   Future<void> delete(String id) async {
     await ref.read(backendProvider).deleteMeeting(id);
+    await purgeLocalMeetingData(ref.read, id);
     ref.invalidateSelf();
   }
 }
