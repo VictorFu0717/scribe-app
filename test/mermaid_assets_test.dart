@@ -39,15 +39,41 @@ void main() {
     expect(html, contains('dark:'));
   });
 
-  test('svg 寬度規則:可縮小但不放大', () async {
+  test('縮圖整張縮到放得下且不放大;全螢幕可往下捲', () async {
     final html = await rootBundle.loadString('assets/mermaid/renderer.html');
-    final rule = RegExp(r'#wrap svg \{[^}]*\}').firstMatch(html)?.group(0) ?? '';
-    expect(rule, contains('max-width: 100%'));
-    expect(rule, contains('min-width: 0'),
-        reason: 'flex 項目預設 min-width:auto,窄螢幕下縮不下去');
-    expect(rule, isNot(contains('!important')),
-        reason: 'mermaid 的 inline max-width 是「不要放大超過原尺寸」的上限,'
-            '蓋掉它小圖會被拉大、字糊掉');
+    // 縮圖:取寬、高兩者的限制,且上限 1(不放大)。先前固定高度,
+    // 比較高的圖下半部直接被截掉。
+    expect(html, contains('Math.min(1, availW / natW, availH / natH)'));
+    // 全螢幕:只符合寬度,不限制高度 —— 比螢幕高就往下捲(實測回報的 bug)。
+    expect(html, contains("opts.mode === 'full'"));
+    // 全螢幕要能縮小看全貌
+    expect(html, contains('minimum-scale=0.25'));
+  });
+
+  test('時間軸與心智圖改用直式版面,解析不了才退回 mermaid', () async {
+    final html = await rootBundle.loadString('assets/mermaid/renderer.html');
+    expect(html, contains('function parseTimeline'));
+    expect(html, contains('function parseMindmap'));
+    expect(html, contains('if (renderVertical(code, p, wrap))'),
+        reason: '直式版面失敗時要接著走 mermaid,不能變空白');
+  });
+
+  test('直式版面的文字一律用 textContent(原始碼是 LLM 產的)', () async {
+    final html = await rootBundle.loadString('assets/mermaid/renderer.html');
+    final start = html.indexOf('function parseTimeline');
+    final end = html.indexOf('let last = null;');
+    expect(start, greaterThan(0));
+    final vertical = html.substring(start, end);
+    expect(vertical, isNot(contains('innerHTML')),
+        reason: '用 innerHTML 組字串就能被塞進 <img onerror> 之類的東西');
+    expect(html, contains('e.textContent = text'));
+  });
+
+  test('左右展開的圖在直立螢幕上可改成上下展開', () async {
+    final html = await rootBundle.loadString('assets/mermaid/renderer.html');
+    expect(html, contains('LR_RE'));
+    // 只有明顯比較好才換,本來放得下的圖維持原樣
+    expect(html, contains('* 1.15'));
   });
 
   test('打包的 mermaid.js 會把自己掛到 globalThis', () async {

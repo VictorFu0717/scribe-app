@@ -761,6 +761,7 @@ class _HttpTranscriptionSession implements TranscriptionSession {
   }
 
   /// 立刻重試連線(使用者按「重新連線」時用,不必等退避計時)。
+  @override
   void reconnectNow() {
     if (_closed) return;
     _retryTimer?.cancel();

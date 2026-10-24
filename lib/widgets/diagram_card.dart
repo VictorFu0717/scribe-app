@@ -60,11 +60,18 @@ class DiagramCard extends StatelessWidget {
             ),
           ),
           // 整張圖可點開放大 —— 手機螢幕窄,節點一多就看不清字。
-          InkWell(
+          // 用 opaque 的 GestureDetector 而非 InkWell:縮圖的 WebView 被
+          // IgnorePointer 包住、不參與命中測試,InkWell(deferToChild)會因此
+          // 收不到點擊。
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () => openDiagramFullScreen(context, diagram),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
-              child: DiagramView(diagram: diagram),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: DiagramView(diagram: diagram),
+              ),
             ),
           ),
           if (diagram.hint != null)
@@ -134,14 +141,14 @@ class _DiagramFullScreen extends StatelessWidget {
           ),
         ],
       ),
-      // 外層再包一層 InteractiveViewer:WebView 內的 meta viewport 允許雙指縮放,
-      // 但大圖還是常常需要再拉近一點看細節。
-      body: InteractiveViewer(
-        maxScale: 6,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(8),
-          child: DiagramView(diagram: diagram, interactive: true),
-        ),
+      // WebView 直接填滿畫面,捲動與雙指縮放由它自己處理。
+      //
+      // **不要**再包 SingleChildScrollView / InteractiveViewer:先前這樣做,
+      // WebView 的高度被撐成整張圖那麼高、又吃掉所有手勢,外層捲不動、裡面
+      // 也沒東西可捲 —— 放大後只看得到上半部(實測回報)。
+      body: SafeArea(
+        top: false,
+        child: DiagramView(diagram: diagram, interactive: true),
       ),
     );
   }

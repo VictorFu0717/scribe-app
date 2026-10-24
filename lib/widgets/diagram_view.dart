@@ -15,22 +15,27 @@ import '../services/mermaid_assets.dart';
 /// HTML 都**打包在 App 內**(見 pubspec 的 assets),不吃 CDN —— server 在內網
 /// (Tailscale/OpenVPN),使用者常常連不到外網。
 ///
-/// 高度由頁面渲染完回報,而不是給一個固定值:圖的大小事先不知道,寫死不是被裁掉
-/// 就是在下面留一大塊空白。
+/// 兩種模式:
+///  - 縮圖(聊天氣泡內):整張圖等比縮到 [maxHeight] 以內,**只負責顯示**,
+///    不收任何手勢(點擊由外層開全螢幕、上下拖曳交給聊天列表)。高度由頁面
+///    渲染完回報,而不是寫死 —— 寫死不是被裁掉就是留一大塊空白。
+///  - 全螢幕([interactive]):WebView 填滿父元件,捲動與雙指縮放**交給 WebView
+///    自己處理**。先前把它包在 Flutter 的捲動容器裡,手勢被 WebView 吃掉、
+///    外層又捲不動,放大後只看得到上半部。
 class DiagramView extends StatefulWidget {
   const DiagramView({
     super.key,
     required this.diagram,
     this.interactive = false,
-    this.maxHeight = 420,
+    this.maxHeight = 560,
   });
 
   final MeetingDiagram diagram;
 
-  /// 可否縮放/捲動。聊天氣泡內關閉(會跟列表搶手勢),全螢幕檢視才開。
+  /// 全螢幕模式:填滿父元件,可捲動與縮放。
   final bool interactive;
 
-  /// 氣泡內的高度上限;超過就讓使用者點開全螢幕看。
+  /// 縮圖的高度上限;圖更高時整張等比縮小,並提示「點擊放大」。
   final double maxHeight;
 
   @override
@@ -39,9 +44,15 @@ class DiagramView extends StatefulWidget {
 
 class _DiagramViewState extends State<DiagramView> {
   WebViewController? _controller;
-  double _height = 160;
+  double _height = 200;
   bool _ready = false;
   String? _error;
+
+  /// 已經畫出來了(在那之前蓋一層載入中,不讓使用者看到空白的畫布)。
+  bool _drawn = false;
+
+  /// 縮圖被縮得比較小,要提示可以點開放大。
+  bool _shrunk = false;
 
   /// 已送去渲染的內容 + 主題,避免重複渲染同一張圖。
   String? _rendered;
@@ -66,6 +77,8 @@ class _DiagramViewState extends State<DiagramView> {
 
       final c = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        // 只有全螢幕才允許雙指縮放;縮圖本來就不收手勢,關掉免得意外觸發
+        ..enableZoom(widget.interactive)
         // 透明背景:圖要融進聊天氣泡,白底方塊很突兀(深色模式尤其明顯)。
         ..setBackgroundColor(Colors.transparent)
         ..addJavaScriptChannel('DiagramChannel',
@@ -96,16 +109,27 @@ class _DiagramViewState extends State<DiagramView> {
       switch (j['type']) {
         case 'size':
           final h = (j['height'] as num?)?.toDouble();
-          // 一點點高度變化不值得重建(渲染後 requestAnimationFrame 會多報幾次)。
-          if (h != null && h > 0 && (h - _height).abs() > 2) {
-            if (mounted) setState(() => _height = h);
+          final shrunk = j['shrunk'] == true;
+          // 一點點高度變化不值得重建(視窗尺寸變動時會多報幾次)。
+          if (h != null && h > 0 && ((h - _height).abs() > 2 || shrunk != _shrunk)) {
+            if (mounted) {
+              setState(() {
+                _height = h;
+                _shrunk = shrunk;
+              });
+            }
           }
         case 'error':
           if (mounted) {
             setState(() => _error = j['message']?.toString() ?? '圖表語法有誤');
           }
         case 'ok':
-          if (mounted && _error != null) setState(() => _error = null);
+          if (mounted) {
+            setState(() {
+              _drawn = true;
+              _error = null;
+            });
+          }
       }
     } catch (_) {
       // JS 傳回來的東西壞掉不該讓畫面爆掉。
@@ -119,8 +143,14 @@ class _DiagramViewState extends State<DiagramView> {
     final key = '${widget.diagram.code}|$dark';
     if (key == _rendered) return;
     _rendered = key;
+    final opts = jsonEncode({
+      'mode': widget.interactive ? 'full' : 'thumb',
+      'maxHeight': widget.maxHeight,
+      // 關係圖會依此改用彩色膠囊,並在直立螢幕上改成上下展開
+      'kind': widget.diagram.kind,
+    });
     await c.runJavaScript(
-      'window.renderDiagram(${jsonEncode(widget.diagram.code)}, $dark);',
+      'window.renderDiagram(${jsonEncode(widget.diagram.code)}, $dark, $opts);',
     );
   }
 
@@ -151,20 +181,76 @@ class _DiagramViewState extends State<DiagramView> {
       );
     }
 
-    final height =
-        widget.interactive ? _height : _height.clamp(80.0, widget.maxHeight);
-    return SizedBox(
-      height: height,
-      child: WebViewWidget(
-        controller: _controller!,
-        // 氣泡內要把手勢全讓給外層列表(空集合),否則圖會把捲動吃掉;
-        // 全螢幕檢視才讓 WebView 自己收手勢(縮放/平移)。
-        gestureRecognizers: widget.interactive
-            ? <Factory<OneSequenceGestureRecognizer>>{
+    final loading = _drawn
+        ? null
+        : Center(
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: scheme.primary),
+            ),
+          );
+
+    if (widget.interactive) {
+      // 填滿父元件;捲動與縮放全交給 WebView(外層不能再包捲動容器)。
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: WebViewWidget(
+              controller: _controller!,
+              gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
                 Factory<OneSequenceGestureRecognizer>(
                     EagerGestureRecognizer.new),
-              }
-            : const <Factory<OneSequenceGestureRecognizer>>{},
+              },
+            ),
+          ),
+          ?loading,
+        ],
+      );
+    }
+
+    return SizedBox(
+      height: _height.clamp(80.0, widget.maxHeight),
+      child: Stack(
+        children: [
+          // 縮圖只負責顯示:IgnorePointer 讓 WebView 完全收不到觸控,
+          // 點擊由外層開全螢幕、上下拖曳交給聊天列表捲動。
+          Positioned.fill(
+            child: IgnorePointer(
+              child: WebViewWidget(controller: _controller!),
+            ),
+          ),
+          ?loading,
+          if (_shrunk && _drawn)
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: IgnorePointer(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: scheme.inverseSurface.withValues(alpha: 0.78),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.zoom_in_rounded,
+                          size: 14, color: scheme.onInverseSurface),
+                      const SizedBox(width: 3),
+                      Text('點擊放大',
+                          style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onInverseSurface)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

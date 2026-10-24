@@ -2,27 +2,75 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=4, user-scalable=yes">
+<!-- minimum-scale 要小於 1:全螢幕檢視時使用者得能縮小看全貌。 -->
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=0.25, maximum-scale=5, user-scalable=yes">
 <style>
-  :root { color-scheme: light dark; }
+  :root { color-scheme: light dark; --dot: #E4E7F2; }
   html, body {
     margin: 0; padding: 0;
     background: transparent;
     -webkit-text-size-adjust: 100%;
   }
-  #wrap {
-    padding: 8px;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    min-height: 100%;
-    box-sizing: border-box;
+  /* 點陣畫布:讓圖像是畫在白板上,而不是一張浮在空白裡的貼圖 */
+  body.canvas {
+    background-image: radial-gradient(circle, var(--dot) 1.1px, transparent 1.4px);
+    background-size: 18px 18px;
+    min-height: 100vh;
   }
-  /* 圖寬度跟著容器,過寬時自動縮小 —— 手機螢幕窄,流程圖常常很寬。
-     不要加 !important:mermaid 會在 svg 上寫 inline 的 `max-width: <原始寬度>px`,
-     那是「不要放大超過原尺寸」的上限,蓋掉它會讓小圖被拉大、字糊掉(實測過)。
-     min-width:0 則是必要的 —— flex 項目預設 min-width:auto,不會縮到比內容窄。 */
-  #wrap svg { max-width: 100%; min-width: 0; height: auto; }
+  #wrap { padding: 12px; box-sizing: border-box; }
+  /* 尺寸由 fit() 依模式計算後直接寫在 svg 上(縮圖:整張縮到放得下;
+     全螢幕:符合寬度、可往下捲),這裡只負責置中。 */
+  #wrap svg { display: block; margin: 0 auto; }
+  /* 只做透明度淡入:WebKit 對含 foreignObject 的 SVG 套 transform 動畫時,
+     文字可能錯位 */
+  #wrap svg { animation: appear .3s ease-out; }
+  @keyframes appear { from { opacity: 0; } to { opacity: 1; } }
+  /* ── 直式時間軸 / 卡片心智圖(HTML 版面)── */
+  .hd { font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif;
+        color: var(--ink); transform-origin: top center; margin: 0 auto; max-width: 560px; }
+  .hd * { box-sizing: border-box; }
+  .hd-title { font-size: 17px; font-weight: 800; margin: 2px 0 14px 2px; letter-spacing: .2px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+          box-shadow: var(--shadow); }
+
+  .tl { position: relative; padding-left: 26px; }
+  .tl::before { content: ''; position: absolute; left: 8px; top: 6px; bottom: 6px; width: 3px;
+                border-radius: 3px; background: linear-gradient(180deg, #6366F1, #8B5CF6); opacity: .85; }
+  .tl-section { position: relative; margin: 4px 0 10px -26px; padding-left: 0; }
+  .tl-section span { display: inline-block; font-size: 12.5px; font-weight: 800; padding: 4px 12px;
+                     border-radius: 999px; background: var(--sbg); color: var(--sink);
+                     border: 1px solid var(--sedge); position: relative; z-index: 1; }
+  .tl-item { position: relative; margin: 0 0 12px 0; }
+  .tl-dot { position: absolute; left: -24px; top: 15px; width: 11px; height: 11px; border-radius: 50%;
+            background: var(--card); border: 3px solid var(--sedge); }
+  .tl-card { padding: 10px 13px; border-left: 4px solid var(--sedge); }
+  .tl-time { display: inline-block; font-size: 11.5px; font-weight: 800; color: var(--sink);
+             background: var(--sbg); border-radius: 6px; padding: 1px 7px; margin-bottom: 4px; }
+  .tl-main { font-size: 15px; font-weight: 700; line-height: 1.4; white-space: pre-line; }
+  .tl-sub { font-size: 13px; color: var(--muted); line-height: 1.45; margin-top: 3px; white-space: pre-line; }
+  .tl-sub::before { content: '• '; color: var(--sedge); }
+
+  .mm-root { display: block; width: fit-content; margin: 0 auto 6px; padding: 11px 22px;
+             border-radius: 999px; color: #fff; font-size: 16px; font-weight: 800;
+             background: linear-gradient(135deg, #6366F1, #8B5CF6);
+             box-shadow: 0 6px 18px rgba(99,102,241,.35); white-space: pre-line; text-align: center; }
+  .mm-stem { width: 3px; height: 14px; margin: 0 auto; border-radius: 3px;
+             background: linear-gradient(180deg, #8B5CF6, var(--border)); }
+  .mm-branches { position: relative; padding-left: 18px; }
+  .mm-branches::before { content: ''; position: absolute; left: 6px; top: 0; bottom: 22px; width: 3px;
+                         border-radius: 3px; background: var(--border); }
+  .mm-branch { position: relative; margin: 10px 0 0 0; padding: 10px 12px 11px;
+               border-left: 4px solid var(--sedge); }
+  .mm-branch::before { content: ''; position: absolute; left: -16px; top: 20px; width: 12px; height: 3px;
+                       border-radius: 3px; background: var(--sedge); }
+  .mm-head { font-size: 15px; font-weight: 800; color: var(--sink); margin-bottom: 7px; white-space: pre-line; }
+  .mm-kids { display: flex; flex-wrap: wrap; gap: 6px; }
+  .mm-leaf { font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+             background: var(--sbg); color: var(--sink); white-space: pre-line; line-height: 1.35; }
+  .mm-group { flex-basis: 100%; padding: 7px 9px; border-radius: 10px;
+              border: 1px dashed var(--sedge); }
+  .mm-group > .mm-leaf { background: transparent; padding: 0 2px 5px; font-weight: 800; display: block; }
+
   #err {
     display: none;
     font: 13px -apple-system, "Helvetica Neue", sans-serif;
@@ -36,120 +84,582 @@
 <div id="wrap"></div>
 <pre id="err"></pre>
 <script>
-  // 與 App 溝通:渲染完回報實際高度,Flutter 端據此調整 WebView 大小 ——
-  // 圖的高度事先不知道,給固定高度不是被裁掉就是留一大塊空白。
+  const NS = 'http://www.w3.org/2000/svg';
+
+  // 與 App 溝通:回報渲染結果與實際高度。圖的高度事先不知道,
+  // 給固定高度不是被裁掉就是留一大塊空白。
   function post(msg) {
     try { DiagramChannel.postMessage(JSON.stringify(msg)); } catch (e) {}
   }
 
-  function reportSize() {
-    const svg = document.querySelector('#wrap svg');
-    const h = svg ? Math.ceil(svg.getBoundingClientRect().height) + 16
-                  : Math.ceil(document.body.scrollHeight);
-    post({ type: 'size', height: h });
-  }
-
   // App 的品牌色(見 lib/core/theme/app_theme.dart)。圖要看起來像 App 的一部分,
   // 不是外掛進來的東西。
+  //
+  // 角色配色是讓圖「有層次」的關鍵:預設外觀每個節點都長一樣,看不出哪裡是
+  // 起點、哪裡要做決定、哪裡是結果。
   const PALETTE = {
     light: {
-      ink: '#1E2030', brand: '#6366F1', violet: '#8B5CF6',
-      line: '#8C93B8', nodeBg: '#FFFFFF', decisionBg: '#F3F0FF',
-      labelBg: '#EEF0FB', clusterBg: '#F6F6FC', clusterBorder: '#E2E4F2',
-      shadow: 'drop-shadow(0 1px 2px rgba(30,32,48,.10)) drop-shadow(0 4px 10px rgba(99,102,241,.10))',
-      // timeline / mindmap 的分段色(見下方 cScale 說明)
-      scale: ['#EEF0FB', '#E9E4FF', '#E0F2FE', '#FCE7F3',
-              '#DCFCE7', '#FEF3C7', '#EDE9FE', '#E0E7FF'],
+      ink: '#1E2030', muted: '#5B6078', brand: '#6366F1', violet: '#8B5CF6',
+      dot: '#E2E5F1', line: '#9BA2C6',
+      shadow: 'drop-shadow(0 1px 1.5px rgba(30,32,48,.08)) drop-shadow(0 4px 12px rgba(79,70,229,.10))',
+      boxShadow: '0 1px 2px rgba(30,32,48,.06), 0 4px 14px rgba(79,70,229,.09)',
+      pill: { fill: '#FFFFFF', stroke: '#DADDF0', text: '#4F46E5' },
+      roles: {
+        step:     { fill: '#FFFFFF', stroke: '#D9DCEF', text: '#1E2030' },
+        start:    { fill: 'GRADIENT', stroke: 'none', text: '#FFFFFF' },
+        end:      { fill: '#ECFDF5', stroke: '#34D399', text: '#065F46' },
+        decision: { fill: '#FFF7ED', stroke: '#FB923C', text: '#9A3412' },
+      },
+      // 關係圖:每個人/事/物一個顏色,一眼分得出誰是誰
+      rel: [
+        { fill: '#EEF2FF', stroke: '#A5B4FC', text: '#3730A3' },
+        { fill: '#E0F2FE', stroke: '#7DD3FC', text: '#075985' },
+        { fill: '#FCE7F3', stroke: '#F9A8D4', text: '#9D174D' },
+        { fill: '#ECFDF5', stroke: '#6EE7B7', text: '#065F46' },
+        { fill: '#FFFBEB', stroke: '#FCD34D', text: '#92400E' },
+        { fill: '#F5F3FF', stroke: '#C4B5FD', text: '#5B21B6' },
+      ],
+      // timeline / mindmap 的分段色(見 themeConfig 的 cScale 說明)
+      scale: ['#EEF2FF', '#E0F2FE', '#FCE7F3', '#ECFDF5',
+              '#FFFBEB', '#F5F3FF', '#FFF1F2', '#F0FDFA'],
+      scaleInk: ['#3730A3', '#075985', '#9D174D', '#065F46',
+                 '#92400E', '#5B21B6', '#9F1239', '#115E59'],
+      scaleEdge: ['#818CF8', '#38BDF8', '#F472B6', '#34D399',
+                  '#FBBF24', '#A78BFA', '#FB7185', '#2DD4BF'],
     },
     dark: {
-      ink: '#E8EAF2', brand: '#A5B4FC', violet: '#C4B5FD',
-      line: '#6E759B', nodeBg: '#1C2029', decisionBg: '#241F3D',
-      labelBg: '#161923', clusterBg: '#12141C', clusterBorder: '#2A2F40',
-      shadow: 'drop-shadow(0 2px 6px rgba(0,0,0,.45))',
-      scale: ['#232a3f', '#2b2450', '#16334a', '#3d1f33',
-              '#15361f', '#3a2f14', '#2a2448', '#1e2748'],
+      ink: '#E8EAF2', muted: '#A3A8C3', brand: '#A5B4FC', violet: '#C4B5FD',
+      dot: '#22273A', line: '#5E658A',
+      shadow: 'drop-shadow(0 2px 8px rgba(0,0,0,.5))',
+      boxShadow: '0 2px 10px rgba(0,0,0,.45)',
+      pill: { fill: '#1A1E2B', stroke: '#30364C', text: '#A5B4FC' },
+      roles: {
+        step:     { fill: '#1A1E2B', stroke: '#30364C', text: '#E8EAF2' },
+        start:    { fill: 'GRADIENT', stroke: 'none', text: '#FFFFFF' },
+        end:      { fill: '#0E2A21', stroke: '#34D399', text: '#A7F3D0' },
+        decision: { fill: '#2B1D10', stroke: '#FB923C', text: '#FED7AA' },
+      },
+      rel: [
+        { fill: '#1E2142', stroke: '#6366F1', text: '#C7D2FE' },
+        { fill: '#0B2536', stroke: '#38BDF8', text: '#BAE6FD' },
+        { fill: '#2E1324', stroke: '#F472B6', text: '#FBCFE8' },
+        { fill: '#0D2A20', stroke: '#34D399', text: '#A7F3D0' },
+        { fill: '#2B2108', stroke: '#FBBF24', text: '#FDE68A' },
+        { fill: '#221A3E', stroke: '#A78BFA', text: '#DDD6FE' },
+      ],
+      scale: ['#1E2142', '#0B2536', '#2E1324', '#0D2A20',
+              '#2B2108', '#221A3E', '#2E1219', '#0B2A27'],
+      scaleInk: ['#C7D2FE', '#BAE6FD', '#FBCFE8', '#A7F3D0',
+                 '#FDE68A', '#DDD6FE', '#FECDD3', '#99F6E4'],
+      scaleEdge: ['#6366F1', '#38BDF8', '#F472B6', '#34D399',
+                  '#FBBF24', '#A78BFA', '#FB7185', '#2DD4BF'],
     },
   };
+  // 起點節點的漸層(與 App 的 AppGradients.brand 相同)
+  const GRADIENT = ['#6366F1', '#8B5CF6'];
 
-  function themeConfig(dark) {
-    const p = dark ? PALETTE.dark : PALETTE.light;
+  function themeConfig(p) {
     const vars = {
       fontSize: '15px',
-      primaryColor: p.nodeBg,
-      primaryBorderColor: p.brand,
+      primaryColor: p.roles.step.fill,
+      primaryBorderColor: p.roles.step.stroke,
       primaryTextColor: p.ink,
       lineColor: p.line,
-      edgeLabelBackground: p.labelBg,
-      clusterBkg: p.clusterBg,
-      clusterBorder: p.clusterBorder,
+      edgeLabelBackground: 'transparent',
+      clusterBkg: 'transparent',
+      clusterBorder: p.roles.step.stroke,
+      titleColor: p.ink,
     };
     // timeline 與 mindmap **不吃** primaryColor,它們用 cScale 系列上色;
     // 不設的話整張圖會是預設的灰方塊(實測如此)。
     p.scale.forEach((c, i) => {
       vars['cScale' + i] = c;
-      vars['cScaleLabel' + i] = p.ink;
+      vars['cScaleLabel' + i] = p.scaleInk[i];
       // cScaleInv 是 mermaid 由 cScale 反推的對比色,預設會算出橄欖綠之類的
-      // 髒色(timeline 的 section 底線)。明確指定成品牌色系。
-      vars['cScaleInv' + i] = i % 2 ? p.violet : p.brand;
+      // 髒色(timeline 的 section 底線)。明確指定成同色系的深色。
+      vars['cScaleInv' + i] = p.scaleEdge[i];
     });
 
     const css = `
-      /* 圓角卡片 + 陰影:預設主題是直角細框,看起來很陽春 */
-      .node rect { rx: 12px; ry: 12px; }
-      .node rect, .node polygon { filter: ${p.shadow}; }
-      /* 決策菱形用紫色調區隔,一眼看得出哪裡要做選擇 */
-      .node polygon { fill: ${p.decisionBg} !important; stroke: ${p.violet} !important; }
-      .nodeLabel { font-weight: 600; }
-      .edgePath path, .flowchart-link { stroke-width: 1.8px; }
-      .marker { fill: ${p.line} !important; stroke: ${p.line} !important; }
-      .edgeLabel, .edgeLabel p { color: ${p.brand}; font-size: 12.5px; font-weight: 700; }
-      .cluster rect { rx: 14px; ry: 14px; }
-      /* mindmap 根節點用品牌色實心,文字要白的才讀得到 */
-      .mindmap-node.section--1 > circle, .mindmap-node.section--1 > rect,
-      .mindmap-node.section--1 > polygon {
-        fill: ${p.brand} !important; stroke: ${p.brand} !important; }
-      .mindmap-node.section--1 .nodeLabel, .mindmap-node.section--1 .nodeLabel p,
-      .mindmap-node.section--1 text, .mindmap-node.section--1 tspan {
-        color: #fff !important; fill: #fff !important; font-weight: 700; }
-      .timeline text, .timeline .label { font-size: 13px; }
+      .nodeLabel, .nodeLabel p { font-weight: 600; }
+      .flowchart-link { stroke-width: 1.7px; stroke-linecap: round; }
+      .arrowMarkerPath { fill: ${p.line} !important; stroke: ${p.line} !important; }
+      .edgeLabel .labelBkg { background: transparent !important; }
+      .edgeLabel, .edgeLabel p, .edgeLabel span {
+        color: ${p.pill.text} !important; font-size: 12.5px; font-weight: 700; }
+      .cluster rect { rx: 14px; ry: 14px; stroke-dasharray: 4 4; }
+      .cluster-label .nodeLabel { color: ${p.ink}; font-weight: 700; }
+      /* mindmap:分支卡片加陰影、拿掉底線,連線加粗 */
+      .mindmap-node path.node-bkg, .mindmap-node circle { filter: ${p.shadow}; }
+      .mindmap-node line { display: none; }
+      .mindmap-node .nodeLabel { font-weight: 600; }
+      path.edge { stroke-width: 3px; stroke-linecap: round; }
+      /* timeline:卡片加陰影、字大一點 */
+      .timeline-node path.node-bkg { filter: ${p.shadow}; }
+      .timeline-node text, .timeline-node .nodeLabel { font-size: 13.5px; font-weight: 600; }
+      .titleText, text.titleText { font-weight: 800; fill: ${p.ink}; }
     `;
 
     return {
       startOnLoad: false,
       securityLevel: 'strict',   // 圖的原始碼是 LLM 產的,不給它執行 JS 的機會
       theme: 'base',             // base + themeVariables 才吃得到自訂色;default 不行
-      fontFamily: '-apple-system, "PingFang TC", "Noto Sans TC", sans-serif',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif',
       themeVariables: vars,
       themeCSS: css,
       flowchart: {
-        useMaxWidth: true, htmlLabels: true,
+        useMaxWidth: false,      // 尺寸改由 fit() 控制
+        htmlLabels: true,
         curve: 'basis',          // 直角折線改成平滑曲線
-        padding: 14, nodeSpacing: 42, rankSpacing: 48, diagramPadding: 8,
+        // 間距收緊:圖的原始尺寸越小,縮圖縮得越少、字越讀得到
+        padding: 14, nodeSpacing: 32, rankSpacing: 40, diagramPadding: 8,
+        wrappingWidth: 170,      // 手機窄,節點文字太長就換行,別把圖撐得很寬
       },
+      mindmap: { useMaxWidth: false, padding: 14 },
+      timeline: { useMaxWidth: false },
     };
   }
 
-  async function render(code, dark) {
+  function important(el, prop, val) { el.style.setProperty(prop, val, 'important'); }
+
+  function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  /// 依節點在流程中的角色上色。用 mermaid 自己解析出的邊來算入度/出度,
+  /// 不靠正規表示式去猜原始碼(節點 id 可能含底線,連線 id 會有歧義)。
+  async function decorateFlow(svg, renderId, code, p, kind) {
+    let edges = [], vertices = [];
+    try {
+      const dia = await mermaid.mermaidAPI.getDiagramFromText(code);
+      edges = dia.db.getEdges().map(e => [e.start, e.end]);
+      const v = dia.db.getVertices();
+      vertices = [...(v instanceof Map ? v.values() : Object.values(v))]
+        .map(x => ({ id: x.id, type: x.type }));
+    } catch (e) {
+      return; // 裝飾失敗不影響圖本身,維持基本主題
+    }
+    const inDeg = {}, outDeg = {};
+    edges.forEach(([s, t]) => {
+      outDeg[s] = (outDeg[s] || 0) + 1;
+      inDeg[t] = (inDeg[t] || 0) + 1;
+    });
+    const typeOf = Object.fromEntries(vertices.map(v => [v.id, v.type]));
+    // 起點 = 沒有人指向它的節點;整張圖成環時(常見:「重新評估」指回開頭),
+    // 退回第一個宣告的節點。
+    const starts = new Set(vertices.filter(v => !inDeg[v.id] && outDeg[v.id]).map(v => v.id));
+    if (!starts.size && vertices.length) starts.add(vertices[0].id);
+
+    const relation = kind === 'relation' || /^\s*graph\s+(LR|RL)\b/.test(code);
+
+    // 漸層定義(每次渲染一個獨立 id,避免重畫時互相引用到舊的)
+    const gradId = renderId + '-grad';
+    let defs = svg.querySelector('defs');
+    if (!defs) { defs = document.createElementNS(NS, 'defs'); svg.insertBefore(defs, svg.firstChild); }
+    const lg = document.createElementNS(NS, 'linearGradient');
+    lg.setAttribute('id', gradId);
+    lg.setAttribute('x1', '0'); lg.setAttribute('y1', '0');
+    lg.setAttribute('x2', '1'); lg.setAttribute('y2', '1');
+    GRADIENT.forEach((c, i) => {
+      const stop = document.createElementNS(NS, 'stop');
+      stop.setAttribute('offset', String(i));
+      stop.setAttribute('stop-color', c);
+      lg.appendChild(stop);
+    });
+    defs.appendChild(lg);
+
+    const idRe = new RegExp('^' + escapeRe(renderId) + '-flowchart-(.+)-\\d+$');
+    let relIndex = 0;
+    svg.querySelectorAll('g.node').forEach(g => {
+      const m = (g.id || '').match(idRe);
+      const nid = m ? m[1] : null;
+      const shape = g.querySelector(':scope > rect, :scope > polygon, :scope > circle, :scope > path');
+      if (!nid || !shape) return;
+
+      let style, radius = 12;
+      if (relation) {
+        style = p.rel[relIndex++ % p.rel.length];
+        radius = 'pill';
+      } else if (typeOf[nid] === 'diamond') {
+        style = p.roles.decision;
+      } else if (starts.has(nid)) {
+        style = p.roles.start;
+      } else if (inDeg[nid] && !outDeg[nid]) {
+        style = p.roles.end;
+      } else {
+        style = p.roles.step;
+      }
+
+      important(shape, 'fill', style.fill === 'GRADIENT' ? `url(#${gradId})` : style.fill);
+      important(shape, 'stroke', style.stroke);
+      important(shape, 'stroke-width', '1.4px');
+      important(shape, 'stroke-linejoin', 'round');
+      important(shape, 'filter', p.shadow);
+      // 圓角用屬性設,不用 CSS 的 rx:舊版 WebKit 不支援把 rx 當 CSS 屬性
+      if (shape.tagName.toLowerCase() === 'rect') {
+        const h = parseFloat(shape.getAttribute('height')) || 0;
+        const r = radius === 'pill' ? h / 2 : Math.min(radius, h / 2);
+        shape.setAttribute('rx', r);
+        shape.setAttribute('ry', r);
+      }
+      g.querySelectorAll('.nodeLabel, .nodeLabel *, foreignObject div, text, tspan')
+        .forEach(t => { important(t, 'color', style.text); important(t, 'fill', style.text); });
+    });
+
+    // 連線上的文字(「是」「否」)改成藥丸標籤:直接疊在線上很難讀。
+    // 用 SVG rect 畫在文字後面,不去動 foreignObject 的尺寸(改它會被裁切)。
+    svg.querySelectorAll('g.edgeLabel g.label').forEach(lbl => {
+      const fo = lbl.querySelector('foreignObject');
+      if (!fo) return;
+      const w = parseFloat(fo.getAttribute('width')) || 0;
+      const h = parseFloat(fo.getAttribute('height')) || 0;
+      if (w < 1 || h < 1) return; // 沒有標籤的連線
+      const px = 7, py = 2;
+      const r = document.createElementNS(NS, 'rect');
+      r.setAttribute('x', -px); r.setAttribute('y', -py);
+      r.setAttribute('width', w + px * 2); r.setAttribute('height', h + py * 2);
+      r.setAttribute('rx', (h + py * 2) / 2); r.setAttribute('ry', (h + py * 2) / 2);
+      r.setAttribute('fill', p.pill.fill);
+      r.setAttribute('stroke', p.pill.stroke);
+      r.setAttribute('stroke-width', '1');
+      lbl.insertBefore(r, lbl.firstChild);
+    });
+  }
+
+  /// 心智圖的根節點用品牌漸層,文字白色。
+  function decorateMindmap(svg, renderId, p) {
+    const root = svg.querySelector('g.section-root, g.section--1');
+    const shape = root && root.querySelector(':scope > circle, :scope > rect, :scope > path');
+    if (!shape) return;
+    const gradId = renderId + '-grad';
+    let defs = svg.querySelector('defs');
+    if (!defs) { defs = document.createElementNS(NS, 'defs'); svg.insertBefore(defs, svg.firstChild); }
+    const lg = document.createElementNS(NS, 'linearGradient');
+    lg.setAttribute('id', gradId);
+    lg.setAttribute('x1', '0'); lg.setAttribute('y1', '0');
+    lg.setAttribute('x2', '1'); lg.setAttribute('y2', '1');
+    GRADIENT.forEach((c, i) => {
+      const stop = document.createElementNS(NS, 'stop');
+      stop.setAttribute('offset', String(i));
+      stop.setAttribute('stop-color', c);
+      lg.appendChild(stop);
+    });
+    defs.appendChild(lg);
+    important(shape, 'fill', `url(#${gradId})`);
+    important(shape, 'stroke', 'none');
+    root.querySelectorAll('.nodeLabel, .nodeLabel *, foreignObject div, text, tspan')
+      .forEach(t => { important(t, 'color', '#FFFFFF'); important(t, 'fill', '#FFFFFF');
+                      important(t, 'font-weight', '700'); });
+  }
+
+  // ───────────────────────── 直式版面(timeline / mindmap)─────────────────────────
+  //
+  // mermaid 的時間軸只能橫排、心智圖是放射狀,在直立手機上本質就是寬的,
+  // 縮到放得下時字只剩 6~8px。改成自己解析原始碼、排成直式。
+  // 解析不了(語法超出預期)就回傳 null,由呼叫端退回 mermaid 原本的畫法。
+  //
+  // **文字一律用 textContent 放入**:原始碼是 LLM 產的,不能讓它塞 HTML 進來。
+
+  function cleanText(t) {
+    return t.replace(/<br\s*\/?>/gi, '\n')
+            .replace(/^\s*"([\s\S]*)"\s*$/, '$1')
+            .replace(/^\s*`([\s\S]*)`\s*$/, '$1')
+            .replace(/\*\*(.+?)\*\*/g, '$1')
+            .trim();
+  }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  // 像是時間的字串:數字、月/週/季…… —— 用來判斷「1月 : 需求確認」與
+  // 「需求確認 : 1月」哪一邊是時間(LLM 兩種寫法都會出現)。
+  const TIME_RE = /\d|[月週周年日季時]|Q[1-4]|上旬|中旬|下旬|今天|明天|昨天|本週|下週|上週|本月|下月|年底|年初|期末|期初/;
+  function isTime(t) { return t.length <= 14 && TIME_RE.test(t); }
+
+  function parseTimeline(code) {
+    const lines = code.split('\n');
+    const start = lines.findIndex(l => /^\s*timeline\b/.test(l));
+    if (start < 0) return null;
+    const out = { title: '', sections: [] };
+    let section = null, item = null;
+    const head = lines[start].replace(/^\s*timeline\b/, '').trim();
+    if (/^title\s+/.test(head)) out.title = cleanText(head.replace(/^title\s+/, ''));
+    for (const raw of lines.slice(start + 1)) {
+      const line = raw.trim();
+      if (!line || line.startsWith('%%') || /^acc(Title|Descr)\b/.test(line)) continue;
+      if (/^title\s+/.test(line)) { out.title = cleanText(line.replace(/^title\s+/, '')); continue; }
+      if (/^section\s+/.test(line)) {
+        section = { name: cleanText(line.replace(/^section\s+/, '')), items: [] };
+        out.sections.push(section);
+        item = null;
+        continue;
+      }
+      if (!section) { section = { name: '', items: [] }; out.sections.push(section); }
+      // mermaid 的分隔是「冒號 + 空白」;10:30 這種不算
+      const parts = line.split(/\s*:\s+/).map(cleanText).filter(Boolean);
+      if (line.startsWith(':')) {          // 「: 事件」接續上一個時段
+        if (!item) return null;
+        item.events.push(...line.replace(/^:\s*/, '').split(/\s*:\s+/).map(cleanText).filter(Boolean));
+        continue;
+      }
+      if (!parts.length) continue;
+      item = { period: parts[0], events: parts.slice(1) };
+      section.items.push(item);
+    }
+    const count = out.sections.reduce((n, s) => n + s.items.length, 0);
+    return count ? out : null;
+  }
+
+  function buildTimeline(tl, p) {
+    const root = el('div', 'hd');
+    if (tl.title) root.appendChild(el('div', 'hd-title', tl.title));
+    const rail = el('div', 'tl');
+    tl.sections.forEach((sec, si) => {
+      const c = si % p.scale.length;
+      const vars = `--sbg:${p.scale[c]};--sink:${p.scaleInk[c]};--sedge:${p.scaleEdge[c]};`;
+      if (sec.name) {
+        const h = el('div', 'tl-section');
+        h.setAttribute('style', vars);
+        h.appendChild(el('span', null, sec.name));
+        rail.appendChild(h);
+      }
+      sec.items.forEach(it => {
+        // 哪一邊是時間不一定,猜一下:時間當小標籤,事件當主文
+        let time = null, main = it.period, subs = it.events;
+        if (isTime(it.period) && it.events.length) {
+          time = it.period; main = it.events[0]; subs = it.events.slice(1);
+        } else {
+          const ti = it.events.findIndex(isTime);
+          if (ti >= 0) { time = it.events[ti]; subs = it.events.filter((_, i) => i !== ti); }
+        }
+        const row = el('div', 'tl-item');
+        row.setAttribute('style', vars);
+        row.appendChild(el('div', 'tl-dot'));
+        const card = el('div', 'card tl-card');
+        if (time) card.appendChild(el('div', 'tl-time', time));
+        card.appendChild(el('div', 'tl-main', main));
+        subs.forEach(sx => card.appendChild(el('div', 'tl-sub', sx)));
+        row.appendChild(card);
+        rail.appendChild(row);
+      });
+    });
+    root.appendChild(rail);
+    return root;
+  }
+
+  function parseMindmap(code) {
+    const lines = code.split('\n');
+    const start = lines.findIndex(l => /^\s*mindmap\b/.test(l));
+    if (start < 0) return null;
+    const nodes = [];
+    for (const raw of lines.slice(start + 1)) {
+      if (!raw.trim() || /^\s*%%/.test(raw) || /^\s*::icon/.test(raw)) continue;
+      const indent = raw.match(/^[ \t]*/)[0].replace(/\t/g, '    ').length;
+      let t = raw.trim().replace(/:::[\w\s-]+$/, '').trim();
+      // 形狀語法:id((文字))、id(文字)、id[文字]、id{{文字}}、id))文字(( …… 只取文字
+      const m = t.match(/^[\w-]*\s*(\(\(|\)\)|\{\{|\(|\)|\[)([\s\S]*?)(\)\)|\(\(|\}\}|\)|\(|\])$/);
+      if (m) t = m[2];
+      t = cleanText(t);
+      if (t) nodes.push({ indent, text: t, children: [] });
+    }
+    if (nodes.length < 2) return null;
+    const root = nodes[0];
+    const stack = [root];
+    for (const n of nodes.slice(1)) {
+      while (stack.length > 1 && stack[stack.length - 1].indent >= n.indent) stack.pop();
+      stack[stack.length - 1].children.push(n);
+      stack.push(n);
+    }
+    return root.children.length ? root : null;
+  }
+
+  function buildMindmapKids(nodes) {
+    const kids = el('div', 'mm-kids');
+    nodes.forEach(n => {
+      if (!n.children.length) { kids.appendChild(el('span', 'mm-leaf', n.text)); return; }
+      // 有下一層的子項:框成一組,底下再排一列膠囊
+      const g = el('div', 'mm-group');
+      g.appendChild(el('span', 'mm-leaf', n.text));
+      g.appendChild(buildMindmapKids(n.children));
+      kids.appendChild(g);
+    });
+    return kids;
+  }
+
+  function buildMindmap(tree, p) {
+    const root = el('div', 'hd');
+    root.appendChild(el('div', 'mm-root', tree.text));
+    root.appendChild(el('div', 'mm-stem'));
+    const list = el('div', 'mm-branches');
+    tree.children.forEach((b, i) => {
+      const c = i % p.scale.length;
+      const card = el('div', 'card mm-branch');
+      card.setAttribute('style', `--sbg:${p.scale[c]};--sink:${p.scaleInk[c]};--sedge:${p.scaleEdge[c]};`);
+      card.appendChild(el('div', 'mm-head', b.text));
+      if (b.children.length) card.appendChild(buildMindmapKids(b.children));
+      list.appendChild(card);
+    });
+    root.appendChild(list);
+    return root;
+  }
+
+  /// 能用直式版面就用,回傳是否成功。
+  function renderVertical(code, p, wrap) {
+    let tree = null, build = null;
+    if (/^\s*timeline\b/.test(code)) { tree = parseTimeline(code); build = buildTimeline; }
+    else if (/^\s*mindmap\b/.test(code)) { tree = parseMindmap(code); build = buildMindmap; }
+    if (!tree) return false;
+    const node = build(tree, p);
+    node.style.setProperty('--ink', p.ink);
+    node.style.setProperty('--muted', p.muted);
+    node.style.setProperty('--card', p.roles.step.fill);
+    node.style.setProperty('--border', p.roles.step.stroke);
+    node.style.setProperty('--shadow', p.boxShadow);
+    wrap.appendChild(node);
+    return true;
+  }
+
+  let last = null;   // 最近一次的渲染參數(視窗尺寸改變時重新計算大小用)
+  let seq = 0;
+
+  const LR_RE = /^(\s*(?:flowchart|graph)\s+)(LR|RL)\b/;
+
+  function viewBoxOf(svgText) {
+    const m = svgText.match(/viewBox="[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)"/);
+    return m ? { w: parseFloat(m[1]), h: parseFloat(m[2]) } : null;
+  }
+
+  /// 渲染,必要時把「左右展開」改成「上下展開」。
+  ///
+  /// 關係圖常是 `graph LR`,在直立的手機上會寬到被縮成看不見的小點(實測縮到
+  /// 0.33 倍)。關係圖的方向本身沒有意義,上下排同樣成立,而直立螢幕放得下。
+  /// 兩種都算一次,只有上下排**明顯**比較好時才換 —— 本來就放得下的圖維持原樣。
+  async function renderBest(code, opts) {
+    const id1 = 'd' + (++seq) + '_' + Date.now();
+    const first = await mermaid.render(id1, code);
+    const best = { svg: first.svg, code, id: id1 };
+    if (!LR_RE.test(code)) return best;
+
+    const vb1 = viewBoxOf(first.svg);
+    const availW = document.documentElement.clientWidth - PAD * 2;
+    if (!vb1 || vb1.w <= availW * 1.25) return best;
+
+    const alt = code.replace(LR_RE, '$1TB');
+    try {
+      const id2 = 'd' + (++seq) + '_' + Date.now();
+      const second = await mermaid.render(id2, alt);
+      const vb2 = viewBoxOf(second.svg);
+      if (vb2 && scaleFor(vb2.w, vb2.h, opts) > scaleFor(vb1.w, vb1.h, opts) * 1.15) {
+        return { svg: second.svg, code: alt, id: id2 };
+      }
+    } catch (e) {
+      // 換方向失敗就用原本的
+    }
+    return best;
+  }
+
+  /// 依模式決定圖的大小。
+  ///  - thumb(聊天氣泡內):**整張等比縮到放得下**,不放大。先前固定高度 420,
+  ///    比較高的圖下半部直接被截掉。
+  ///  - full(全螢幕):符合寬度(小圖最多放大 1.6 倍,向量圖不會糊),
+  ///    比螢幕高就往下捲 —— 先前包在 Flutter 的捲動容器裡,手勢被 WebView
+  ///    吃掉,放大後只看得到上半部。
+  const PAD = 12;
+
+  function scaleFor(natW, natH, opts) {
+    const availW = Math.max(60, document.documentElement.clientWidth - PAD * 2);
+    if (opts.mode === 'full') {
+      // 太寬的圖縮到 0.6 倍為止(再小字就讀不了),剩下的左右捲 / 雙指縮放
+      return Math.min(Math.max(availW / natW, 0.6), 1.6);
+    }
+    const availH = Math.max(60, opts.maxHeight - PAD * 2);
+    return Math.min(1, availW / natW, availH / natH);
+  }
+
+  function fit() {
+    if (!last) return;
+    const html = document.querySelector('#wrap .hd');
+    if (html) {
+      // HTML 版面依螢幕寬度自然排版,只有縮圖放不下時才整體等比縮小
+      html.style.transform = '';
+      html.parentElement.style.height = '';
+      const natH = html.offsetHeight;
+      let scale = 1;
+      if (last.opts.mode !== 'full') {
+        const availH = Math.max(60, last.opts.maxHeight - PAD * 2);
+        scale = Math.min(1, availH / natH);
+      }
+      if (scale < 1) {
+        html.style.transform = `scale(${scale})`;
+        html.parentElement.style.height = Math.ceil(natH * scale + PAD * 2) + 'px';
+      }
+      post({ type: 'size', height: Math.ceil(natH * scale) + PAD * 2,
+             shrunk: last.opts.mode !== 'full' && scale < 0.85 });
+      return;
+    }
+    const svg = document.querySelector('#wrap svg');
+    if (!svg) return;
+    const vb = svg.viewBox && svg.viewBox.baseVal;
+    let natW = vb && vb.width, natH = vb && vb.height;
+    if (!natW || !natH) {
+      const b = svg.getBBox(); natW = b.width; natH = b.height;
+    }
+    const pad = PAD;
+    const scale = scaleFor(natW, natH, last.opts);
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    svg.style.maxWidth = 'none';
+    svg.style.width = Math.round(natW * scale) + 'px';
+    svg.style.height = Math.round(natH * scale) + 'px';
+    post({
+      type: 'size',
+      height: Math.ceil(natH * scale) + pad * 2,
+      // 縮得比較小時,App 會提示「點擊放大」
+      shrunk: last.opts.mode !== 'full' && scale < 0.85,
+    });
+  }
+
+  async function render(code, dark, opts) {
+    opts = Object.assign({ mode: 'thumb', maxHeight: 560, kind: '' }, opts || {});
+    last = { code, dark, opts };
+    const p = dark ? PALETTE.dark : PALETTE.light;
+    document.documentElement.style.setProperty('--dot', p.dot);
+    document.body.classList.add('canvas');
+
     const wrap = document.getElementById('wrap');
     const err = document.getElementById('err');
     err.style.display = 'none';
     wrap.innerHTML = '';
     try {
-      mermaid.initialize(themeConfig(dark));
-      const { svg } = await mermaid.render('d' + Date.now(), code);
-      wrap.innerHTML = svg;
+      if (renderVertical(code, p, wrap)) {
+        fit();
+        post({ type: 'ok' });
+        return;
+      }
+      mermaid.initialize(themeConfig(p));
+      const best = await renderBest(code, opts);
+      wrap.innerHTML = best.svg;
+      const el = wrap.querySelector('svg');
+      if (/^\s*(flowchart|graph)\b/.test(best.code)) {
+        await decorateFlow(el, best.id, best.code, p, opts.kind);
+      } else if (/^\s*mindmap\b/.test(best.code)) {
+        decorateMindmap(el, best.id, p);
+      }
+      fit();
       post({ type: 'ok' });
     } catch (e) {
       // 不要留白畫面 —— 讓 App 顯示「這張圖畫不出來」並提供原始碼。
+      wrap.innerHTML = '';
       err.textContent = (e && e.message) ? e.message : String(e);
       err.style.display = 'block';
       post({ type: 'error', message: err.textContent });
     }
-    requestAnimationFrame(reportSize);
   }
 
   window.renderDiagram = render;
-  window.addEventListener('resize', reportSize);
+  window.addEventListener('resize', () => requestAnimationFrame(fit));
 </script>
 </body>
 </html>
