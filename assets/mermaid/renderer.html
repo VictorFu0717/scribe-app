@@ -18,8 +18,11 @@
     min-height: 100%;
     box-sizing: border-box;
   }
-  /* 圖寬度跟著容器,過寬時自動縮小 —— 手機螢幕窄,流程圖常常很寬。 */
-  #wrap svg { max-width: 100%; height: auto; }
+  /* 圖寬度跟著容器,過寬時自動縮小 —— 手機螢幕窄,流程圖常常很寬。
+     不要加 !important:mermaid 會在 svg 上寫 inline 的 `max-width: <原始寬度>px`,
+     那是「不要放大超過原尺寸」的上限,蓋掉它會讓小圖被拉大、字糊掉(實測過)。
+     min-width:0 則是必要的 —— flex 項目預設 min-width:auto,不會縮到比內容窄。 */
+  #wrap svg { max-width: 100%; min-width: 0; height: auto; }
   #err {
     display: none;
     font: 13px -apple-system, "Helvetica Neue", sans-serif;
@@ -46,19 +49,93 @@
     post({ type: 'size', height: h });
   }
 
+  // App 的品牌色(見 lib/core/theme/app_theme.dart)。圖要看起來像 App 的一部分,
+  // 不是外掛進來的東西。
+  const PALETTE = {
+    light: {
+      ink: '#1E2030', brand: '#6366F1', violet: '#8B5CF6',
+      line: '#8C93B8', nodeBg: '#FFFFFF', decisionBg: '#F3F0FF',
+      labelBg: '#EEF0FB', clusterBg: '#F6F6FC', clusterBorder: '#E2E4F2',
+      shadow: 'drop-shadow(0 1px 2px rgba(30,32,48,.10)) drop-shadow(0 4px 10px rgba(99,102,241,.10))',
+      // timeline / mindmap 的分段色(見下方 cScale 說明)
+      scale: ['#EEF0FB', '#E9E4FF', '#E0F2FE', '#FCE7F3',
+              '#DCFCE7', '#FEF3C7', '#EDE9FE', '#E0E7FF'],
+    },
+    dark: {
+      ink: '#E8EAF2', brand: '#A5B4FC', violet: '#C4B5FD',
+      line: '#6E759B', nodeBg: '#1C2029', decisionBg: '#241F3D',
+      labelBg: '#161923', clusterBg: '#12141C', clusterBorder: '#2A2F40',
+      shadow: 'drop-shadow(0 2px 6px rgba(0,0,0,.45))',
+      scale: ['#232a3f', '#2b2450', '#16334a', '#3d1f33',
+              '#15361f', '#3a2f14', '#2a2448', '#1e2748'],
+    },
+  };
+
+  function themeConfig(dark) {
+    const p = dark ? PALETTE.dark : PALETTE.light;
+    const vars = {
+      fontSize: '15px',
+      primaryColor: p.nodeBg,
+      primaryBorderColor: p.brand,
+      primaryTextColor: p.ink,
+      lineColor: p.line,
+      edgeLabelBackground: p.labelBg,
+      clusterBkg: p.clusterBg,
+      clusterBorder: p.clusterBorder,
+    };
+    // timeline 與 mindmap **不吃** primaryColor,它們用 cScale 系列上色;
+    // 不設的話整張圖會是預設的灰方塊(實測如此)。
+    p.scale.forEach((c, i) => {
+      vars['cScale' + i] = c;
+      vars['cScaleLabel' + i] = p.ink;
+      // cScaleInv 是 mermaid 由 cScale 反推的對比色,預設會算出橄欖綠之類的
+      // 髒色(timeline 的 section 底線)。明確指定成品牌色系。
+      vars['cScaleInv' + i] = i % 2 ? p.violet : p.brand;
+    });
+
+    const css = `
+      /* 圓角卡片 + 陰影:預設主題是直角細框,看起來很陽春 */
+      .node rect { rx: 12px; ry: 12px; }
+      .node rect, .node polygon { filter: ${p.shadow}; }
+      /* 決策菱形用紫色調區隔,一眼看得出哪裡要做選擇 */
+      .node polygon { fill: ${p.decisionBg} !important; stroke: ${p.violet} !important; }
+      .nodeLabel { font-weight: 600; }
+      .edgePath path, .flowchart-link { stroke-width: 1.8px; }
+      .marker { fill: ${p.line} !important; stroke: ${p.line} !important; }
+      .edgeLabel, .edgeLabel p { color: ${p.brand}; font-size: 12.5px; font-weight: 700; }
+      .cluster rect { rx: 14px; ry: 14px; }
+      /* mindmap 根節點用品牌色實心,文字要白的才讀得到 */
+      .mindmap-node.section--1 > circle, .mindmap-node.section--1 > rect,
+      .mindmap-node.section--1 > polygon {
+        fill: ${p.brand} !important; stroke: ${p.brand} !important; }
+      .mindmap-node.section--1 .nodeLabel, .mindmap-node.section--1 .nodeLabel p,
+      .mindmap-node.section--1 text, .mindmap-node.section--1 tspan {
+        color: #fff !important; fill: #fff !important; font-weight: 700; }
+      .timeline text, .timeline .label { font-size: 13px; }
+    `;
+
+    return {
+      startOnLoad: false,
+      securityLevel: 'strict',   // 圖的原始碼是 LLM 產的,不給它執行 JS 的機會
+      theme: 'base',             // base + themeVariables 才吃得到自訂色;default 不行
+      fontFamily: '-apple-system, "PingFang TC", "Noto Sans TC", sans-serif',
+      themeVariables: vars,
+      themeCSS: css,
+      flowchart: {
+        useMaxWidth: true, htmlLabels: true,
+        curve: 'basis',          // 直角折線改成平滑曲線
+        padding: 14, nodeSpacing: 42, rankSpacing: 48, diagramPadding: 8,
+      },
+    };
+  }
+
   async function render(code, dark) {
     const wrap = document.getElementById('wrap');
     const err = document.getElementById('err');
     err.style.display = 'none';
     wrap.innerHTML = '';
     try {
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: 'strict',      // 圖的原始碼是 LLM 產的,不給它執行 JS 的機會
-        theme: dark ? 'dark' : 'default',
-        fontFamily: '-apple-system, "PingFang TC", "Noto Sans TC", sans-serif',
-        flowchart: { useMaxWidth: true, htmlLabels: true },
-      });
+      mermaid.initialize(themeConfig(dark));
       const { svg } = await mermaid.render('d' + Date.now(), code);
       wrap.innerHTML = svg;
       post({ type: 'ok' });

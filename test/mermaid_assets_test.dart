@@ -21,6 +21,35 @@ void main() {
     expect(html, contains("securityLevel: 'strict'"));
   });
 
+  test('套用自訂主題,不是 mermaid 的預設外觀', () async {
+    final html = await rootBundle.loadString('assets/mermaid/renderer.html');
+    // theme 必須是 base —— 'default' 吃不到 themeVariables,整張圖會變回
+    // 細框灰方塊(使用者回報「很陽春」就是那個樣子)。
+    expect(html, contains("theme: 'base'"));
+    expect(html, contains('themeVariables'));
+    expect(html, contains('themeCSS'));
+    // 品牌色(見 app_theme.dart 的 seed)。
+    expect(html, contains('#6366F1'));
+    // timeline / mindmap 不吃 primaryColor,一定要有 cScale 系列,
+    // 否則那兩種圖會是灰的。
+    expect(html, contains("'cScale'"));
+    expect(html, contains("'cScaleInv'"));
+    // 淺色與深色兩套色盤都要在。
+    expect(html, contains('light:'));
+    expect(html, contains('dark:'));
+  });
+
+  test('svg 寬度規則:可縮小但不放大', () async {
+    final html = await rootBundle.loadString('assets/mermaid/renderer.html');
+    final rule = RegExp(r'#wrap svg \{[^}]*\}').firstMatch(html)?.group(0) ?? '';
+    expect(rule, contains('max-width: 100%'));
+    expect(rule, contains('min-width: 0'),
+        reason: 'flex 項目預設 min-width:auto,窄螢幕下縮不下去');
+    expect(rule, isNot(contains('!important')),
+        reason: 'mermaid 的 inline max-width 是「不要放大超過原尺寸」的上限,'
+            '蓋掉它小圖會被拉大、字糊掉');
+  });
+
   test('打包的 mermaid.js 會把自己掛到 globalThis', () async {
     final js = await rootBundle.loadString('assets/mermaid/mermaid.min.js');
     expect(js, contains('globalThis["mermaid"]'),
