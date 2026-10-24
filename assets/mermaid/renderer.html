@@ -658,6 +658,135 @@
     }
   }
 
+  // ───────────────────────── 匯出成 JPG ─────────────────────────
+
+  const EXPORT_W = 480;      // 直式版面匯出時的排版寬度(手機長圖的常見比例)
+  const EXPORT_PAD = 24;
+
+  /// 把 mermaid 的 svg 加上留白與白底。
+  ///
+  /// 放大靠把 svg 的寬高設成輸出尺寸、viewBox 維持原尺寸,讓瀏覽器以向量
+  /// 重新點陣化。(若用 drawImage 去放大,WebKit 會先依原尺寸點陣化再放大,字會糊。)
+  function svgForExport(svg) {
+    const vb = svg.viewBox.baseVal;
+    const x = vb.x - EXPORT_PAD, y = vb.y - EXPORT_PAD;
+    const w = vb.width + EXPORT_PAD * 2, h = vb.height + EXPORT_PAD * 2;
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+    clone.removeAttribute('style');
+    const bg = document.createElementNS(NS, 'rect');
+    bg.setAttribute('x', x); bg.setAttribute('y', y);
+    bg.setAttribute('width', w); bg.setAttribute('height', h);
+    // inline + important:mermaid 的樣式表可能有針對 rect 的規則
+    bg.setAttribute('style', 'fill:#FFFFFF !important;stroke:none !important;');
+    clone.insertBefore(bg, clone.firstChild);
+    return {
+      w, h,
+      toSvg(scale) {
+        clone.setAttribute('width', Math.round(w * scale));
+        clone.setAttribute('height', Math.round(h * scale));
+        return clone;
+      },
+    };
+  }
+
+  /// 直式 HTML 版面包進 SVG 的 foreignObject,連同樣式表一起帶進去
+  /// (當成圖片載入時拿不到頁面上的 CSS)。
+  ///
+  /// **放大要用 CSS zoom,不能靠 viewBox**:WebKit 裡 foreignObject 內有定位
+  /// (position: relative/absolute)的元素不吃 SVG 的縮放 —— 實測標題被放大 3 倍、
+  /// 時間線與分支列表卻停在 1 倍,疊成一團。改成 SVG 維持 1:1、內容用 zoom
+  /// 放大,所有元素就在同一個座標系裡。
+  function htmlToSvg(node) {
+    const w = node.offsetWidth + EXPORT_PAD * 2;
+    const h = node.offsetHeight + EXPORT_PAD * 2;
+    const css = [...document.querySelectorAll('style')].map(x => x.textContent).join('\n');
+    // XMLSerializer 會把文字裡的 < & 轉義 —— LLM 產的內容不會變成標籤
+    const xhtml = new XMLSerializer().serializeToString(node);
+    return {
+      w, h,
+      toSvg(scale) {
+        const W = Math.round(w * scale), H = Math.round(h * scale);
+        const text =
+          `<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+          `<rect width="${W}" height="${H}" style="fill:#FFFFFF"/>` +
+          `<foreignObject x="0" y="0" width="${W}" height="${H}">` +
+          `<div xmlns="http://www.w3.org/1999/xhtml" style="zoom:${scale};width:${w}px;` +
+          `padding:${EXPORT_PAD}px;box-sizing:border-box;">` +
+          `<style><![CDATA[${css}]]></style>${xhtml}</div></foreignObject></svg>`;
+        const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+        if (doc.querySelector('parsererror')) throw new Error('匯出時組圖失敗');
+        return doc.documentElement;
+      },
+    };
+  }
+
+  /// 點陣化成 JPG。
+  function rasterize(job) {
+    const { w, h } = job;
+    // 約 3 倍解析度,字才清楚;但限制總像素 —— iOS 的 canvas 有面積上限,
+    // 超過時整張會是空白而不是報錯。
+    const scale = Math.min(3, 4096 / Math.max(w, h), Math.sqrt(12e6 / (w * h)));
+    const W = Math.round(w * scale), H = Math.round(h * scale);
+    const text = new XMLSerializer().serializeToString(job.toSvg(scale));
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = W; c.height = H;
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = '#FFFFFF';      // JPG 沒有透明,先鋪白底
+          ctx.fillRect(0, 0, W, H);
+          ctx.drawImage(img, 0, 0, W, H);
+          resolve({ data: c.toDataURL('image/jpeg', 0.92), width: W, height: H });
+        } catch (e) { reject(e); }
+      };
+      img.onerror = () => reject(new Error('圖片轉換失敗'));
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(text);
+    });
+  }
+
+  /// 匯出目前這張圖,結果以 {type:'export', data} 回傳給 App。
+  ///
+  /// 另外在畫面外用**淺色主題、白底**重新畫一份,而不是截畫面:要貼進文件、
+  /// 傳到群組,白底最通用;畫面上的縮圖也是縮過的,直接截字會糊。
+  async function exportImage() {
+    try {
+      if (!last) throw new Error('圖還沒畫好');
+      const p = PALETTE.light;
+      const host = document.createElement('div');
+      host.style.cssText = `position:absolute;left:-30000px;top:0;width:${EXPORT_W}px;`;
+      document.body.appendChild(host);
+      let job;
+      try {
+        if (renderVertical(last.code, p, host)) {
+          job = htmlToSvg(host.querySelector('.hd'));
+        } else {
+          mermaid.initialize(themeConfig(p));
+          const best = await renderBest(last.code, { mode: 'full', maxHeight: 0 });
+          host.innerHTML = best.svg;
+          const el = host.querySelector('svg');
+          if (/^\s*(flowchart|graph)\b/.test(best.code)) {
+            await decorateFlow(el, best.id, best.code, p, last.opts.kind);
+          } else if (/^\s*mindmap\b/.test(best.code)) {
+            decorateMindmap(el, best.id, p);
+          }
+          job = svgForExport(el);
+        }
+      } finally {
+        host.remove();
+        // 還原主畫面的主題,之後重畫(例如切換深色)才正確
+        mermaid.initialize(themeConfig(last.dark ? PALETTE.dark : PALETTE.light));
+      }
+      const out = await rasterize(job);
+      post({ type: 'export', data: out.data, width: out.width, height: out.height });
+    } catch (e) {
+      post({ type: 'exportError', message: (e && e.message) ? e.message : String(e) });
+    }
+  }
+
+  window.exportImage = exportImage;
   window.renderDiagram = render;
   window.addEventListener('resize', () => requestAnimationFrame(fit));
 </script>

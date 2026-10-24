@@ -76,6 +76,20 @@ void main() {
     expect(html, contains('* 1.15'));
   });
 
+  test('匯出 JPG:淺色白底重畫,HTML 版面用 CSS zoom 放大', () async {
+    final html = await rootBundle.loadString('assets/mermaid/renderer.html');
+    expect(html, contains('window.exportImage = exportImage'));
+    // 匯出一律用淺色主題(要貼進文件、傳到群組,白底最通用)
+    final start = html.indexOf('async function exportImage()');
+    final body = html.substring(start, html.indexOf('window.exportImage'));
+    expect(body, contains('PALETTE.light'));
+    // WebKit 裡 foreignObject 內有定位的元素不吃 viewBox 縮放 —— 實測標題被放大、
+    // 時間線卻停在 1 倍,疊成一團。HTML 版面必須用 zoom 放大。
+    expect(html, contains(r'zoom:${scale}'));
+    // 解析度上限:iOS 的 canvas 有面積上限,超過整張會是空白
+    expect(html, contains('12e6'));
+  });
+
   test('打包的 mermaid.js 會把自己掛到 globalThis', () async {
     final js = await rootBundle.loadString('assets/mermaid/mermaid.min.js');
     expect(js, contains('globalThis["mermaid"]'),

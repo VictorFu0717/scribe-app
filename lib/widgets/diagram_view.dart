@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,29 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../models/meeting_diagram.dart';
 import '../services/mermaid_assets.dart';
+
+/// 讓外部(下載按鈕)向 [DiagramView] 要一張 JPG。
+///
+/// 匯出要靠 DiagramView 裡的 WebView 執行 —— 圖是在那裡畫的。圖畫好之前
+/// [isReady] 為 false,按鈕據此停用(ChangeNotifier 讓按鈕跟著更新)。
+class DiagramExportHandle extends ChangeNotifier {
+  Future<Uint8List> Function()? _exporter;
+
+  bool get isReady => _exporter != null;
+
+  void _attach(Future<Uint8List> Function()? exporter) {
+    if (_exporter == exporter) return;
+    _exporter = exporter;
+    notifyListeners();
+  }
+
+  /// 匯出成 JPG(淺色主題、白底、約 3 倍解析度)。
+  Future<Uint8List> exportJpeg() {
+    final f = _exporter;
+    if (f == null) return Future.error(StateError('圖還沒畫好'));
+    return f();
+  }
+}
 
 /// 渲染一張 Mermaid 圖。
 ///
@@ -28,9 +52,13 @@ class DiagramView extends StatefulWidget {
     required this.diagram,
     this.interactive = false,
     this.maxHeight = 560,
+    this.exportHandle,
   });
 
   final MeetingDiagram diagram;
+
+  /// 給下載按鈕用;不需要匯出時可省略。
+  final DiagramExportHandle? exportHandle;
 
   /// 全螢幕模式:填滿父元件,可捲動與縮放。
   final bool interactive;
@@ -53,6 +81,35 @@ class _DiagramViewState extends State<DiagramView> {
 
   /// 縮圖被縮得比較小,要提示可以點開放大。
   bool _shrunk = false;
+
+  /// 進行中的匯出(JS 端以 DiagramChannel 回傳結果)。
+  Completer<Uint8List>? _pendingExport;
+
+  /// 匯出成 JPG。連點時共用同一次匯出,不重複產圖。
+  Future<Uint8List> _exportJpeg() async {
+    final c = _controller;
+    if (c == null || !_drawn) throw StateError('圖還沒畫好');
+    final running = _pendingExport;
+    if (running != null) return running.future;
+    final done = Completer<Uint8List>();
+    _pendingExport = done;
+    try {
+      await c.runJavaScript('window.exportImage();');
+      // 大圖在舊手機上點陣化要一點時間,但不該無限等下去。
+      return await done.future.timeout(const Duration(seconds: 30));
+    } finally {
+      _pendingExport = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    // 只解除自己掛上去的 —— 同一個 handle 可能已被新的 DiagramView 接手。
+    if (widget.exportHandle?._exporter == _exportJpeg) {
+      widget.exportHandle!._attach(null);
+    }
+    super.dispose();
+  }
 
   /// 已送去渲染的內容 + 主題,避免重複渲染同一張圖。
   String? _rendered;
@@ -123,13 +180,26 @@ class _DiagramViewState extends State<DiagramView> {
           if (mounted) {
             setState(() => _error = j['message']?.toString() ?? '圖表語法有誤');
           }
+          widget.exportHandle?._attach(null); // 畫不出來就沒有東西可存
         case 'ok':
           if (mounted) {
             setState(() {
               _drawn = true;
               _error = null;
             });
+            widget.exportHandle?._attach(_exportJpeg);
           }
+        case 'export':
+          final data = j['data'] as String? ?? '';
+          final comma = data.indexOf(',');
+          if (comma < 0) {
+            _pendingExport?.completeError(StateError('匯出的圖片格式不正確'));
+          } else {
+            _pendingExport?.complete(base64Decode(data.substring(comma + 1)));
+          }
+        case 'exportError':
+          _pendingExport
+              ?.completeError(StateError(j['message']?.toString() ?? '匯出失敗'));
       }
     } catch (_) {
       // JS 傳回來的東西壞掉不該讓畫面爆掉。

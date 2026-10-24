@@ -1,5 +1,6 @@
 import AVFoundation
 import Flutter
+import Photos
 import UIKit
 
 @main
@@ -9,6 +10,7 @@ import UIKit
   private var incomingFileChannel: FlutterMethodChannel?
   private var audioConvertChannel: FlutterMethodChannel?
   private var backgroundTaskChannel: FlutterMethodChannel?
+  private var saveImageChannel: FlutterMethodChannel?
 
   /// 進行中的 background task assertion(見 lib/services/background_task.dart)。
   /// 上傳大檔可能耗時數分鐘,期間 App 若離開前景會被 iOS 暫停而中斷上傳。
@@ -167,6 +169,39 @@ import UIKit
       }
     }
     backgroundTaskChannel = background
+
+    // 把助理畫的圖表存進「照片」。見 lib/services/image_saver.dart。
+    let saveImage = FlutterMethodChannel(
+      name: "app/save_image", binaryMessenger: messenger)
+    saveImage.setMethodCallHandler { call, result in
+      guard call.method == "saveToPhotos",
+        let path = (call.arguments as? [String: Any])?["path"] as? String
+      else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      AppDelegate.saveToPhotos(path: path, result: result)
+    }
+    saveImageChannel = saveImage
+  }
+
+  /// 存進「照片」。只要求「僅加入照片」(.addOnly)權限,不讀取使用者的相簿。
+  /// 回傳 "ok" / "denied" / "error: …";FlutterResult 每條路徑只呼叫一次。
+  private static func saveToPhotos(path: String, result: @escaping FlutterResult) {
+    let url = URL(fileURLWithPath: path)
+    PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+      guard status == .authorized || status == .limited else {
+        DispatchQueue.main.async { result("denied") }
+        return
+      }
+      PHPhotoLibrary.shared().performChanges({
+        PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: url)
+      }) { ok, error in
+        DispatchQueue.main.async {
+          result(ok ? "ok" : "error: \(error?.localizedDescription ?? "unknown")")
+        }
+      }
+    }
   }
 
   private func endBackgroundTask(_ token: Int) {

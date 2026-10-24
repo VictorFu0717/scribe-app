@@ -1,14 +1,32 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/meeting_diagram.dart';
+import '../services/image_saver.dart';
 import 'diagram_view.dart';
 
-/// 聊天氣泡裡的一張圖:標頭(圖種/依據)+ 圖 + 放大。
-class DiagramCard extends StatelessWidget {
+/// 聊天氣泡裡的一張圖:標頭(圖種/依據 + 下載/放大/複製)+ 圖。
+class DiagramCard extends StatefulWidget {
   const DiagramCard({super.key, required this.diagram});
 
   final MeetingDiagram diagram;
+
+  @override
+  State<DiagramCard> createState() => _DiagramCardState();
+}
+
+class _DiagramCardState extends State<DiagramCard> {
+  final _export = DiagramExportHandle();
+
+  MeetingDiagram get diagram => widget.diagram;
+
+  @override
+  void dispose() {
+    _export.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,6 +60,12 @@ class DiagramCard extends StatelessWidget {
                           TextStyle(fontSize: 11.5, color: scheme.outline)),
                 ],
                 const Spacer(),
+                DiagramDownloadButton(
+                  handle: _export,
+                  diagram: diagram,
+                  iconSize: 18,
+                  color: scheme.outline,
+                ),
                 IconButton(
                   icon: const Icon(Icons.open_in_full_rounded, size: 17),
                   tooltip: '放大檢視',
@@ -70,7 +94,7 @@ class DiagramCard extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: DiagramView(diagram: diagram),
+                child: DiagramView(diagram: diagram, exportHandle: _export),
               ),
             ),
           ),
@@ -119,10 +143,25 @@ void openDiagramFullScreen(BuildContext context, MeetingDiagram diagram) {
   ));
 }
 
-class _DiagramFullScreen extends StatelessWidget {
+class _DiagramFullScreen extends StatefulWidget {
   const _DiagramFullScreen({required this.diagram});
 
   final MeetingDiagram diagram;
+
+  @override
+  State<_DiagramFullScreen> createState() => _DiagramFullScreenState();
+}
+
+class _DiagramFullScreenState extends State<_DiagramFullScreen> {
+  final _export = DiagramExportHandle();
+
+  MeetingDiagram get diagram => widget.diagram;
+
+  @override
+  void dispose() {
+    _export.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -130,6 +169,7 @@ class _DiagramFullScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(diagram.kindLabel),
         actions: [
+          DiagramDownloadButton(handle: _export, diagram: diagram),
           IconButton(
             icon: const Icon(Icons.copy_rounded),
             tooltip: '複製原始碼',
@@ -148,7 +188,91 @@ class _DiagramFullScreen extends StatelessWidget {
       // 也沒東西可捲 —— 放大後只看得到上半部(實測回報)。
       body: SafeArea(
         top: false,
-        child: DiagramView(diagram: diagram, interactive: true),
+        child: DiagramView(
+          diagram: diagram,
+          interactive: true,
+          exportHandle: _export,
+        ),
+      ),
+    );
+  }
+}
+
+/// 存成圖片的檔名,例如「會議助理_流程圖_20261025_1530.jpg」。
+String diagramFileName(MeetingDiagram diagram, DateTime now) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  final stamp = '${now.year}${two(now.month)}${two(now.day)}_'
+      '${two(now.hour)}${two(now.minute)}';
+  return '會議助理_${diagram.kindLabel}_$stamp.jpg';
+}
+
+/// 把圖存成 JPG 到相簿。
+///
+/// 匯出的是另外用淺色主題、白底重新畫的高解析度版本(見 renderer.html 的
+/// exportImage),不是截畫面 —— 縮圖是縮過的,直接截字會糊。
+class DiagramDownloadButton extends StatefulWidget {
+  const DiagramDownloadButton({
+    super.key,
+    required this.handle,
+    required this.diagram,
+    this.iconSize = 22,
+    this.color,
+  });
+
+  final DiagramExportHandle handle;
+  final MeetingDiagram diagram;
+  final double iconSize;
+  final Color? color;
+
+  @override
+  State<DiagramDownloadButton> createState() => _DiagramDownloadButtonState();
+}
+
+class _DiagramDownloadButtonState extends State<DiagramDownloadButton> {
+  bool _busy = false;
+
+  Future<void> _save() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = true);
+    try {
+      final bytes = await widget.handle.exportJpeg();
+      final result = await ImageSaver.saveJpeg(
+        bytes,
+        fileName: diagramFileName(widget.diagram, DateTime.now()),
+      );
+      // message 為 null = 使用者自己取消了「另存新檔」,不必多說什麼
+      final msg = result.message;
+      if (msg != null) {
+        messenger.showSnackBar(SnackBar(content: Text(msg)));
+      }
+    } on TimeoutException {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('產生圖片逾時,請再試一次')));
+    } catch (e) {
+      final detail = e is StateError ? e.message : '$e';
+      messenger.showSnackBar(SnackBar(content: Text('產生圖片失敗:$detail')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 圖還沒畫好(或畫不出來)時停用 —— 沒有東西可存
+    return ListenableBuilder(
+      listenable: widget.handle,
+      builder: (context, _) => IconButton(
+        tooltip: '存成圖片(JPG)',
+        visualDensity: VisualDensity.compact,
+        color: widget.color,
+        onPressed: widget.handle.isReady && !_busy ? _save : null,
+        icon: _busy
+            ? SizedBox(
+                width: widget.iconSize - 4,
+                height: widget.iconSize - 4,
+                child: const CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(Icons.download_rounded, size: widget.iconSize),
       ),
     );
   }

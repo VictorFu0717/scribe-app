@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// 把檔案存到手機(Android 的系統「另存新檔」對話框)。
@@ -18,7 +19,10 @@ class SaveToDevice {
   static const MethodChannel _channel = MethodChannel('app/save_file');
 
   /// 是否需要/支援此功能(僅 Android)。
-  static bool get isSupported => Platform.isAndroid;
+  ///
+  /// 用 defaultTargetPlatform 而非 Platform.isAndroid:執行時兩者等價,
+  /// 但前者在測試裡可以覆寫(存圖的退路會走到這裡,需要測得到)。
+  static bool get isSupported => defaultTargetPlatform == TargetPlatform.android;
 
   /// 開啟系統「另存新檔」對話框,把 [path] 的內容存到使用者選擇的位置。
   ///

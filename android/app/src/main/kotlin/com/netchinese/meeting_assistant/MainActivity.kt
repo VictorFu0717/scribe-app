@@ -1,12 +1,17 @@
 package com.netchinese.meeting_assistant
 
+import android.annotation.TargetApi
 import android.app.Activity
+import android.content.ContentValues
 import android.content.Intent
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -14,6 +19,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileInputStream
+import java.io.IOException
 import java.nio.ByteBuffer
 
 class MainActivity : FlutterActivity() {
@@ -155,8 +161,66 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // 把助理畫的圖表存到相簿(Pictures/會議助理)。見 lib/services/image_saver.dart。
+        // 回傳 "ok" / "legacy"(Android 9 以下,由 Dart 改走另存新檔)/ "error: …"。
+        MethodChannel(messenger, "app/save_image")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "saveToGallery") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val src = call.argument<String>("path")
+                val name = call.argument<String>("name") ?: "diagram.jpg"
+                if (src == null || !File(src).exists()) {
+                    result.success("error: 找不到圖片檔")
+                    return@setMethodCallHandler
+                }
+                // Android 9 以下寫入公用相簿需要儲存權限;那些版本改走「另存新檔」。
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    result.success("legacy")
+                    return@setMethodCallHandler
+                }
+                Thread {
+                    val r = try {
+                        saveToGallery(src, name)
+                    } catch (e: Exception) {
+                        "error: ${e.message ?: "無法寫入相簿"}"
+                    }
+                    runOnUiThread { result.success(r) }
+                }.start()
+            }
+
         // 冷啟動:啟動本 Activity 的 intent 可能就帶著分享的檔案。
         handleIncomingIntent(intent)
+    }
+
+    /// 寫進 MediaStore 的 Pictures/會議助理,相簿 App 會直接看到。
+    /// Android 10 起寫入 App 自己建立的媒體檔不需要任何權限。
+    @TargetApi(Build.VERSION_CODES.Q)
+    private fun saveToGallery(src: String, name: String): String {
+        val resolver = contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(MediaStore.Images.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_PICTURES + "/會議助理")
+            // 寫完之前先標記為處理中,相簿才不會看到半張圖
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: return "error: 無法在相簿建立檔案"
+        try {
+            resolver.openOutputStream(uri)?.use { output ->
+                File(src).inputStream().use { input -> input.copyTo(output) }
+            } ?: throw IOException("無法寫入相簿")
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            return "ok"
+        } catch (e: Exception) {
+            resolver.delete(uri, null, null) // 不留下壞掉的半個檔案
+            throw e
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

@@ -48,6 +48,8 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>把助理畫的流程圖、關係圖等圖表存進你的照片。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>需要使用麥克風以錄製會議並產生逐字稿。</string>
 	<key>UIApplicationSceneManifest</key>
