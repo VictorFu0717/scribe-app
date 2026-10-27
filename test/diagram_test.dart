@@ -147,6 +147,47 @@ void main() {
           ['flow', 'relation']);
     });
 
+    // 圖的事件是一長串 JSON(含中文),網路封包可能從任何位置切開 ——
+    // 包括一個中文字的 UTF-8 位元組中間。解析器若處理不好,整張圖會被丟掉,
+    // 使用者只看到文字。用最極端的切法驗證不會發生。
+    test('事件被切成任意大小的封包(含切在中文字中間)也能完整收到圖', () async {
+      final code = 'flowchart TD\n' +
+          List.generate(12, (i) => '  n$i["第 $i 個步驟:確認需求與預算"] --> n${i + 1}["下一步"]')
+              .join('\n');
+      final body = utf8.encode(
+          'data: {"delta":"我幫你畫了一張圖。"}\n\n'
+          'data: ${jsonEncode({'type': 'diagram', 'kind': 'flow', 'code': code, 'source': 'summary'})}\n\n'
+          'data: {"delta":"這張圖呈現了流程。"}\n\n'
+          'data: [DONE]\n\n');
+
+      for (final chunkSizes in <List<int>>[
+        [1],            // 每塊 1 個位元組
+        [2, 3, 5, 7],   // 不規則大小,會切在多位元組字元中間
+        [4096],         // 一次全部
+      ]) {
+        final chunks = <List<int>>[];
+        var i = 0, k = 0;
+        while (i < body.length) {
+          final n = chunkSizes[k++ % chunkSizes.length];
+          chunks.add(body.sublist(i, (i + n).clamp(0, body.length)));
+          i += n;
+        }
+        final client = MockClient.streaming((_, __) async => http.StreamedResponse(
+            Stream.fromIterable(chunks), 200,
+            headers: {'content-type': 'text/event-stream'}));
+
+        final got = await _backend(client)
+            .chat(messages: [ChatMessage(role: ChatRole.user, content: '畫圖')])
+            .toList();
+        final diagrams = got.where((c) => c.diagram != null).toList();
+        expect(diagrams, hasLength(1), reason: '切法 $chunkSizes 時圖不見了');
+        expect(diagrams.single.diagram!.code, code,
+            reason: '切法 $chunkSizes 時原始碼不完整');
+        expect(got.map((c) => c.textDelta ?? '').join(),
+            '我幫你畫了一張圖。這張圖呈現了流程。');
+      }
+    });
+
     test('沒有圖時行為不變(純文字)', () async {
       final client = MockClient.streaming((_, __) async =>
           _sse('data: {"delta":"一般回答"}\n\ndata: [DONE]\n\n'));
